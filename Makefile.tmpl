@@ -1,0 +1,79 @@
+
+LIB=mod_iprot.$(LIBEXT)
+
+OBJS=mod_iprot.o iprot_admin.o iprot_db.o
+OBJS_PIC=mod_iprot.lo iprot_admin.lo iprot_db.lo
+
+all: lib
+
+lib: $(LIB)
+
+mod_iprot.a: libiprot.a
+
+libiprot.a: $(OBJS)
+	rm -f $@
+	ar cr $@ $(OBJS)
+	$(RANLIB) $@
+
+mod_iprot.so: $(OBJS_PIC)
+	rm -f $@
+	$(LD_SHLIB) $(LDFLAGS_SHLIB) -o $@ $(OBJS_PIC) $(LIBS_SHLIB)
+
+.SUFFIXES: .o .lo
+
+.c.o:
+	$(CC) -c $(INCLUDES) $(CFLAGS) -DEAPI $<
+
+.c.lo:
+	$(CC) -c $(INCLUDES) $(CFLAGS) -DEAPI $(CFLAGS_SHLIB) $< && mv $*.o $*.lo
+
+clean:
+	rm -f $(OBJS) $(OBJS_PIC) $(LIB) core
+
+distclean: clean
+	-rm -f Makefile
+
+# We really don't expect end users to use this rule.  It works only with
+# gcc, and rebuilds Makefile.tmpl.  You have to re-run Configure after
+# using it.
+depend:
+	cp Makefile.tmpl Makefile.tmpl.bak \
+	    && sed -ne '1,/^# DO NOT REMOVE/p' Makefile.tmpl > Makefile.new \
+	    && gcc -MM $(INCLUDES) $(CFLAGS) *.c >> Makefile.new \
+	    && sed -e '1,$$s: $(INCDIR)/: $$(INCDIR)/:g' \
+	           -e '1,$$s: $(OSDIR)/: $$(OSDIR)/:g' Makefile.new \
+		> Makefile.tmpl \
+	    && rm Makefile.new
+
+#Dependencies
+
+$(OBJS) $(OBJS_PIC): Makefile
+
+# DO NOT REMOVE
+iprot_admin.o: iprot_admin.c mod_iprot.h $(INCDIR)/httpd.h \
+ $(INCDIR)/ap_config.h $(INCDIR)/ap_mmn.h \
+ $(INCDIR)/ap_config_auto.h $(OSDIR)/os.h \
+ $(OSDIR)/os-inline.c $(INCDIR)/ap_ctype.h \
+ $(INCDIR)/hsregex.h $(INCDIR)/ap_alloc.h $(INCDIR)/buff.h \
+ $(INCDIR)/ap.h $(INCDIR)/util_uri.h \
+ $(INCDIR)/http_config.h $(INCDIR)/http_core.h \
+ $(INCDIR)/http_log.h $(INCDIR)/http_protocol.h \
+ $(INCDIR)/util_script.h
+iprot_db.o: iprot_db.c mod_iprot.h $(INCDIR)/httpd.h \
+ $(INCDIR)/ap_config.h $(INCDIR)/ap_mmn.h \
+ $(INCDIR)/ap_config_auto.h $(OSDIR)/os.h \
+ $(OSDIR)/os-inline.c $(INCDIR)/ap_ctype.h \
+ $(INCDIR)/hsregex.h $(INCDIR)/ap_alloc.h $(INCDIR)/buff.h \
+ $(INCDIR)/ap.h $(INCDIR)/util_uri.h \
+ $(INCDIR)/http_config.h $(INCDIR)/http_core.h \
+ $(INCDIR)/http_log.h $(INCDIR)/http_protocol.h \
+ $(INCDIR)/util_script.h
+mod_iprot.o: mod_iprot.c mod_iprot.h $(INCDIR)/httpd.h \
+ $(INCDIR)/ap_config.h $(INCDIR)/ap_mmn.h \
+ $(INCDIR)/ap_config_auto.h $(OSDIR)/os.h \
+ $(OSDIR)/os-inline.c $(INCDIR)/ap_ctype.h \
+ $(INCDIR)/hsregex.h $(INCDIR)/ap_alloc.h $(INCDIR)/buff.h \
+ $(INCDIR)/ap.h $(INCDIR)/util_uri.h \
+ $(INCDIR)/http_config.h $(INCDIR)/http_core.h \
+ $(INCDIR)/http_log.h $(INCDIR)/http_protocol.h \
+ $(INCDIR)/util_script.h $(INCDIR)/http_request.h

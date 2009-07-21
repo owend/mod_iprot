@@ -1,0 +1,160 @@
+iProtect for Apache
+Copyright 1998-2003 Digital Concepts
+http://www.digital-concepts.net
+All rights reserved.
+
+VERSION 1.9.0beta12
+
+
+Quick Reference of iProtect configuration directives.
+
+
+IProtThreshold
+Number of different ips to allow for each user.
+ex. IProtThreshold 5
+
+IProtAuthTimeout
+Number of seconds to block hack/login attempts.
+ex. IProtAuthTimeout 300
+
+IProtAccessTimeout
+Number of hours to block abused/shared usernames.
+ex. IProtAccessTimeout 24
+
+IProtCompareN
+Number of octets in IP addr to compare ([1-4]).
+ex. IProtCompareN 3
+
+IProtEmail
+Default email address to send all iprot notifications.
+ex. IProtEmail john@doe.foo
+
+IProtFailedThreshold
+Number of failed logins attempts allowed.
+ex. IProtFailedThreshold 3
+
+IProtFailedTimeout
+Number of hours to block failed login attempts.
+ex. IProtFailedTimeout 2
+
+IProtFailedCompareN
+Number of octets in IP addresses to compare on failed logins.
+ex. IProtFailedCompareN 3
+
+IProtNotifyLogin [On|Off]
+If On, send email when a user trips the failed login detector,
+otherwise just block them.
+Default is On, enabled.
+ex. IProtNotifyLogin On
+
+IProtAbuseStatusReturn [0|1|2]
+For abuse blocks -
+0: no status returned,
+1: FORBIDDEN status returned,
+2: redirect to IProtAbuseRedirectURL.
+ex. IProtAbuseStatusReturn 0
+
+IProtAbuseRedirectURL
+URL to redirect to for abuses when IProtAbuseStatusReturn is set to 2.
+ex. IProtAbuseRedirectURL http://www.foo.bar/afile.htm
+
+IProtAbuseEmail
+EMail address to send abuse/shared username notifications.
+This overrides IProtEmail setting.
+ex. IProtAbuseEmail john@doe.foo
+
+IProtHackStatusReturn [0|1|2]
+For password hacking blocks -
+0: no status returned,
+1: FORBIDDEN status returned,
+2: redirect to IProtRedirectURL.
+ex. IProtHackStatusReturn 0
+
+IProtHackRedirectURL
+URL to redirect to for hacks when IProtRedirectURL is set to 2.
+ex. IProtHackRedirectURL  http://www.foo.bar/afile.htm
+
+IProtHackEmail
+EMail address to send hack notifications.
+This overrides IProtEmail setting.
+ex. IProtHackEmail john@doe.foo
+
+IProtNotifyIP [On|Off]
+If On, send email when a user trips the hack detector, otherwise just
+block them.
+Default is On, enabled.
+ex. IProtNotifyIP Off
+
+IProtMaxBytesUser
+Max bytes of transfer per user per day (bandwidth) in megabytes.
+Default is 0, unlmited.
+ex. IProtMaxBytesUser 300
+
+IProtBWStatusReturn  [0|1|2]
+For bandwidth blocks -
+0: no status returned,
+1: FORBIDDEN status returned,
+2: redirect to IProtRedirectURL.
+ex. IProtBWStatusReturn 0
+
+IProtBWRedirectURL
+URL to redirect to for exceeding daily bandwidth when IProtBWStatusReturn
+is set to 2.
+ex. IProtBWRedirectURL  http://www.foo.bar/afile.htm
+
+IProtBWEmail
+EMail address to send bandwidth notifications.
+This overrides IProtEmail setting.
+ex. IProtBWEmail john@doe.foo
+
+IProtNotifyBW [On|Off]
+if On, send email when a user trips the daily bandwidth block,
+otherwise just block them.
+Default is On, enabled.
+ex. IProtNotifyBW On
+
+IProtEnable [On|Off]
+Off to disable checking for this virtual host.
+Default is On, enabled.
+ex. IProtEnable On
+
+IProtExternalIP
+External program to execute in addition to sendmail when an IP address
+is banned.
+First argument passed to the program is the client ip.
+ex. See readme
+
+IProtExternalUser
+External program to execute in addition to sendmail.
+when a username address is banned.
+First argument passed to the program is the username.
+ex. See readme
+
+IprotIgnoreIP
+IP addresses to ignore, one per directive.
+ex. IprotIgnoreIP 1.2.3.4
+
+IProtIgnoreUser
+Username to ignore, one per directive.
+ex. IProtIgnoreUser foobar
+
+IProtNoHEADReq [On|Off]
+On: drop connection on all HEAD requests,
+Off: handle HEAD requests normally. Default is Off.
+ex. IProtNoHEADReq On
+
+IProtAllHostsAdmin [On|Off]
+On: Show all virtual hosts in iProt Admin,
+Off: Show only current host in iProt Admin. Default is Off.
+ex. IProtAllHostsAdmin On
+
+IProtDBFile [path to writable area by apache]
+db file to store access data.
+ex. IProtAllHostsAdmin /tmp/prot
+
+IProtBlockIgnoreDBFile [path to writable area by apache]
+Database file to store user placed block and ignore data.
+Do not place this in a temp area that gets erased when server reboots (/tmp).
+ex. IProtBlockIgnoreDBFile /usr/local/apache/iprot
+
+

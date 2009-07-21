@@ -1,3 +1,29 @@
+Version 1.9.0 02/25/03
+* Defaults provided for all values, directives left out of httpd.conf
+  can no longer cause the server to segfault.
+* IProtAbuseEmail, IProtHackEmail, and IProtBWEmail have been added for
+  greater control of notification email.
+* Added support to eliminate proxy based hack attacks.
+* Addition of an admin interface for some of the iprot configs and to
+  add/edit/delete blocks
+* New make system that works through apache's configure/build system.
+* Ability to drop all HEAD requests.
+* Choice of return results...403, redirect, or drop connection.
+* Optional internal redirection to a user supplied page on blocks,
+  ErrorDocument 403 not needed anymore.
+* The timestamp of accesses for a username is now updated with every
+  successfully authenticated access to support the failed authentication
+  feature. Previously it was not updated.
+* Server_rec->server_hostname has been replaced with
+  ap_get_server_name() which takes into account the status of the
+  UseCanonicalName configuration directive. This is the recommended way
+  to get the server hostname.
+* Full memory management and cleanup routines have been incorporated to
+  overcome some of the pitfalls of older apache memory management that
+  has caused the iprot dbm files to corrupt.
+* Bugs which could cause iProtect to seg fault on servers with heavy
+  loads have been fixed.
+
 Version 1.8.1 8/24/01
 * Split Notify directive into NotifyIP and NotifyUser so user
   can turn off email for either hack attempts or abuse or both.

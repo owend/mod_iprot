@@ -1,93 +1,124 @@
 iProtect for Apache
-Covered under one or more copyrights and patents
-1998-2001 Digital Concepts
+Copyright 1998-2003 Digital Concepts
 http://www.digital-concepts.net
 All rights reserved.
 
-VERSION 1.8.1
+VERSION 1.9.0beta9
 
 INTRODUCTION
 ------------
 
-IProtect is a plug in module for Apache which provides additional password
-based security above and beyond mod_auth.  It maintains a record of the 
-IP addresses and authenticated usernames connecting to a web site.  If too
-many different IP addresses are detected within a certain time period, that
-user is locked out of the web site and an email is sent to the web site
-administrator.   Also, if someone runs a hacking program that tries a large
-number of random usernames and passwords, they will be blocked from further
-access to the server.  IProtect does not read or alter your existing password
-files at all, so it will work no matter what kind of authentication you are 
-using.  
+iProtect is a plug in module for Apache which provides additional password
+based security above and beyond mod_auth. It maintains a record of the IP
+addresses and authenticated usernames/passwords connecting to a web site. If
+too many different IP addresses with same username are detected within a
+certain time period, that username is locked out of the web site and an email
+is sent to the web site administrator. If the abuse of the username stops,
+the username will automatically re-enable. Also, if someone runs a hacking
+program that tries a large number of random usernames and passwords, they
+will be blocked from further access to the server. iProtect does not read or
+alter your existing password files at all, so it will work no matter what
+kind of authentication you are using.
 
-Installing IProtect requires recompiling Apache on your server, which usually
-requires root access.  Since there are many different operating systems
-supported by Apache, and many different possible configurations, not all
-installation issues can be dealt with in the README file, but under new
-versions of Apache, installation is a very simple process.
+Installing iProtect requires recompiling Apache on your server, or the use of
+the apache apxs DSO build utility which usually requires root access. Since
+there are many different operating systems supported by Apache, and many
+different possible configurations, not all installation issues can be dealt
+with in the README file, but under new versions of Apache, installation is a
+very simple process.
 
-For users already familiar with the operation of this module, check out 
-the CHANGES file in this distribute for the latest updates.
+For users already familiar with the operation of this module, check out the
+CHANGES file in this distribute for the latest updates.
 
+REQUIREMENTS
+------------
+
+iProtect works with apache 1.3.9 or greater only. This version of
+iProtect does not work with apache 2.x Please check your apache
+version before attempting to install this module. To check your
+version, find the location of your active running apache binary using
+the unix PS system command. This will tell your the location of where
+your active running apache binary(httpd) is running from. CD to the
+directory where the active running httpd is located and type ./httpd
+-v This will return the version of apache your using. To determine
+wether your apache supports dynamic shared object modules (DSO) type
+./httpd -l If you see mod_so.c in the module list, then you can
+compile this module as a DSO.
 
 INSTALLATION
 ------------
 
 Save a copy of your old httpd binary and conf file just in case.
 
+
 =Apache Recompile (Static):=
 
-To Install From Object File: If you have a precompiled object file
-(i.e. mod_iprot.o) you have two choices.  You can either add the following 
-line to the Configuration.tmpl file in the root Apache source directory:
-Module iprot_module  modules/iprot/mod_iprot.o
+Please see INSTALL file.
 
-Or you can run the Apache configure script with the flag
-
---activate-module=/full/path/to/mod_iprot.o 
-along with your other flags and settings.
-
-Whichever you do, you must run the Apache configure script to build new
-makefiles, then compile Apache.
-
-
-To Install From Source File: If you have a source code file (i.e. mod_iprot.c)
-Run the Apache configure script with the flag
-
---add-module=/full/path/to/mod_iprot.c 
-
-along with your other flags and settings.
-
-Now do a 'make'
-
+After following instructions in INSTALL, you will now need to:
+Add iprot configs to your httpd.conf (see below)
 Shut down httpd, copy the new httpd binary to your httpd binary location
 and restart.
 
+
 =Apache DSO (Dynamic):=
 
-This is the easy part.  If you have Apache compiled with mod_so, you can
-use the apxs utility from the Apache distribution to automatically compile
-and install mod_iprot.  A makefile is provided which does this.
-If you get and error that says "undefined symbol: dbm_fetch" then you will need
-to edit the Makefile and uncomment the line that reads "#LIB=-lgdbm". This mainly
-only applies to users of Redhat 7.1.
+Please see INSTALL file.
 
-   cd (path to where mod_iprot.c is located)
-   make install
+After following instructions in INSTALL, you will now need to:
+Add iprot configs to your httpd.conf (see below)
+Re-start apache
+
+
+INSTALLATION NOTE
+-----------------
+
+To function correctly mod_iprot.c must be added after any modules
+doing authentication. Installing it as the last module works.
+
+Example from httpd.conf:
+
+AddModule mod_auth_pgsql.c
+AddModule mod_php4.c
+AddModule mod_iprot.c
 
 
 CONFIGURATION
------------------------------
+-------------
 
-Add the following minimum set of configuration variables to your httpd.conf
-in a global area (outside a virtualhost directive):
+NOTE: iProtect now requires a directory to store it's permanent
+database files. See "Creating the iprot directory" below for
+details.
+
+Add the following minimum set of configuration variables to your
+httpd.conf in a global area (outside a virtualhost directive) Values
+shown are example values and should be changed to meet your
+requirements/settings:
 
 <IfModule mod_iprot.c>
-   IProtThreshold 10
-   IProtAuthTimeout 300
-   IProtAccessTimeout 24
-   IProtDBFile /tmp/prot
-   IProtCompareN 2
+    IProtThreshold 10
+    IProtAuthTimeout 300
+    IProtAccessTimeout 24
+    IProtDBFile /tmp/iprot
+    IProtBlockIgnoreDBFile iprot/iprot_block_ignore
+    IProtCompareN 2
+
+    IProtAbuseStatusReturn 0
+    IProtHackStatusReturn 0
+    IProtBWStatusReturn 0
+
+    IProtNoHEADReq Off
+
+    IProtFailedThreshold 3
+    IProtFailedTimeout 300
+    IProtFailedCompareN 3
+
+    <Location /iprot-admin>
+	SetHandler iprot-admin
+    	Order deny,allow
+    	Deny from all
+    	Allow from myhost.mydomain.com
+    </Location> 
 </IfModule>
 
 These are merely suggested defaults. For "high traffic" sites, it is more
@@ -99,40 +130,62 @@ Optional directives are described in further detail later in this document.
 OPERATION
 ---------
 
-  mod_iprot does not do much external logging during operation, to minimize
-the system load.  It will print a line to your Apache error_log if it detects
+mod_iprot does not do much external logging during operation, to minimize the
+system load. It will print a line to your Apache error_log if it detects
 unauthorized access, and simulaneously send mail to the administrator of the
 server to warn you of unauthorized access.
-  IProtect will block access to your authorized access areas for the Timeout
+
+mod_iprot prints a message to your Apache error_log if it traps an
+error. All errors including I/O errors and out of memory errors are
+trapped.
+
+iProtect will block access to your authorized access areas for the Timeout
 period, but for safety and security purposes, does not modify your password
-files.  If you think a password has been compromised, you should delete the
+files. If you think a password has been compromised, you should delete the
 user or change the password yourself.
-  It is normal to see a WARNING message in your Apache error log files
-'Resource temporarily unavailable' in regards to the iProtDBFile.
-This message is printed to the log file by Apache when the DB file is busy,
-it is not a performance problem, or an error in any way.  It is normal to
-see this on high traffic sites.
-  If you need to clear out the database of blocked IPs, it is safe to delete
-the IProtDB file.  It will simply be recreated.  Restarting Apache is not
-necessary.
 
-  IProtect issues a 403 server error when it catches an unauthorized access
-attempt. You can redirect this traffic with the use of an ErrorDocument
-directive.
-The directive is generally placed in a VirtualHosts directive or in the
-.htaccess file (if supported)
+It is normal to see a WARNING message in your Apache error log files
+'Resource temporarily unavailable' in regards to the IProtDBFile. This
+message is printed to the log file by Apache when the DB file is busy, it is
+not a performance problem, or an error in any way. It is normal to see this
+on high traffic sites.
 
-Example
+If you need to clear out the database of blocked IPs, it is safe to
+delete the IProtDB file. It will simply be recreated. Restarting
+Apache is not necessary.
+
+iProtect issues a "HTTP STATUS is Forbidden (403)" server error when it
+catches an access attempt it has blocked.
+
+Using version 1.9.0 you can use IProtAbuseStatusReturn,
+IProtHackStatusReturn, and IProtBWStatusReturn to redirect this
+traffic to IProtAbuseRedirectURL, IProtHackRedirectURL, and
+IProtBWRedirectURL respectively. Using an ErrorDocument directive is
+no longer necessary.
+
+You can also redirect this traffic with the use of an ErrorDocument
+directive. The directive is generally placed in a VirtualHosts
+directive or in the .htaccess file (if supported)
+
+Example:
 ErrorDocument 403 http://www.foo.com
+
+The 403 Status is no longer needed, and may be removed from future
+versions of iProtect. The new way to respond to a hack/abuse is to
+redirect or drop the connect. See IProtAbuseStatusReturn,
+IProtHackStatusReturn, and IProtBWStatusReturn for more info on this.
 
 
 HTTPD GLOBAL CONFIGURATION
--------------------
+--------------------------
 
 The following configuration variables are required in httpd.conf in a global
-location(outside a virtualhost directive)
+location (outside a virtualhost directive)
+Any or all of these directives placed inside a VirtualHost directive will
+over-ride the global directives that are set and will only affect the
+'VirtualHost' where they are declared.
 
-=IProtThreshold
+=IProtThreshold <integer>
 
 IProtThreshold is the number of "hits" that are allowed before a username is
 prohibited from further access.   Set this to a reasonable number to allow for
@@ -140,6 +193,7 @@ users with dynamic IP addresses and AOL proxies.
 
 Example:
 IProtThreshold 20
+
 
 =IProtAccessTimeout and IProtAuthTimeout
 
@@ -156,44 +210,94 @@ Example:
 IProtAccessTimeout 24  # 24 hours
 IProtAuthTimeout 300   # 5 minutes
 
+
 =IProtDBFile
 
 IProtDBFile specifies the location of the temporary storage of IP addresses
-while the program is in operation.  The server must have write access to the
-directory.  Your htaccess file is still the master location for all usernames
-and passwords.  An extension is automatically appended onto this file,
-depending on the type of DB support available on your system.
+while the program is in operation. The server must have write access to the
+directory. Your htaccess file is still the master location for all usernames
+and passwords. An extension is automatically appended onto the IProtDBFile
+file, depending on the type of DB support available on your system.
+
+Use a separate database file for each virtual host.
 
 Example:
 IProtDBFile /tmp/prot
 
 
+=IProtBlockIgnoreDBFile		(New in Version 1.9.0)
+
+IProtBlockIgnoreDBFile specifies the location of the permanent
+database of iprot blocks and ignores. This file must be in a directory
+writeable by the user Apache is running under (often nobody or www).
+DO NOT place this file in a directory where the server expunges when
+booting (/tmp).
+
+Apache's user and group are defined in your httpd.conf file
+
+User nobody
+Group nogroup
+
+in current Apache source distributions.
+
+You should create a directory for mod_iprot to use for these
+files. Using /tmp isn't a good idea because files stored there are
+considered temporary and may be deleted when the system is booted.
+
+In this example "iprot/iprot_block_ignore" specifies a file path
+relative to the Apache install directory, for instance
+"/usr/local/apache/iprot/" in this example.
+
+Example:
+IProtBlockIgnoreDBFile iprot/iprot_block_ignore
+
+
+=Creating the iprot directory
+
+To create a directory for iProtect on your system execute the following
+commands as root (this example uses "/usr/local/apache/" as the Apache
+install directory):
+
+# cd /usr/local/apache/
+# mkdir iprot
+# chown <User>.<Group> iprot/
+# chmod u=rwx,go-rwx iprot/
+(where <User> and <Group> are the user/group apache runs as ... usually
+nobody:nogroup
+
+
 =IProtCompareN
 
-IProtCompareN allows you to specify the number of "significant" blocks in
-the IP Address.  If you would like to ignore IP duplicates on the same
-subnet (127.12.123.*), then set IProtCompareN to 3.  Full restriction would
-be 4.  If any part of the IP is different, a hit will be registered.
+IProtCompareN allows you to specify the number of "significant" blocks in the
+IP Address. If you would like to ignore IP duplicates on the same subnet
+(127.12.123.*), then set IProtCompareN to 3. Full restriction would be 4. If
+any part of the IP is different, a hit will be registered.
 
 Example:
 IProtCompareN 2
 
 The following variables are optional in httpd.conf
 
-==IProtIgnoreUser (optional)
 
-IProtIgnoreUser is used to indicate one or more (or a range) usernames that are
-ignored when tracking incoming requests. Just enter user names, one per line,
-and the module will ignore them. You can also enter simple regular expressions
-(see the documentation for the mod_rewrite module for details on the format).
-Notice that this used to be called IProtIgnore, but has changed.
+=IProtIgnoreUser (optional)
+
+IProtIgnoreUser is used to indicate one or more (or a range) usernames that
+are ignored when tracking incoming requests. Just enter user names, one per
+line, and the module will ignore them. You can also enter simple regular
+expressions (see the documentation for the mod_rewrite module for details on
+the format). Notice that this used to be called IProtIgnore, but has changed.
 
 Example:
 IProtIgnoreUser bob
 IProtIgnoreUser foo.*         (ignore anything beginning with foo)
 IProtIgnoreUser foo[0-9]*     (ignore foo with any number of trailing digits)
 
-==IProtIgnoreIP (optional)
+To ignore joe and billy:
+IProtIgnoreUser joe
+IProtIgnoreUser billy
+
+
+=IProtIgnoreIP (optional)
 
 IProtIgnoreIP is used to indicate one or more (or a range) of IPs to ignore
 when tracking incoming requests.  Use it the same way as IProtIgnoreUser.
@@ -205,32 +309,78 @@ Example:
 IProtIgnoreIP 123\.12\.34\.123     (ignore this specific IP address)
 IProtIgnoreIP 123\.12\.34\.[0-9]*  (ignore this range of IPs)
 
-==IProtEmail (optional)
 
-IProtEmail <some valid internet email address>
-By default, iProtect will send its notification emails to whatever email is
-specified for the ServerAdmin Directive for the virtualhost that has the
-abuse/hacking, if no IprotEmail or ServerAdmin is used, iProtect will then
-try to send the notifications to the global ServerAdmin setting.  Use this
-to override the default email address.
+=IProtEmail <internet email address>  (optional) 
 
-==IProtNotifyIP On/Off (optional)
-This is a flag that defaults to true. It is set to false (or 'Off'), the module
-will not send email notifications for hack attempts.
+By default, iProtect will send its notification emails to whatever
+email is specified for the ServerAdmin Directive for the virtualhost
+that has the ban is being placed on. If IProtEmail is set email is
+sent to that address.
+
+The address given to IProtEmail is passed to sendmail without
+checking.
+
+Example:
+IProtEmail webmaster@xxxdomain.com
+
+=IProtAbuseEmail <internet email address> (optional)
+=IProtHackEmail <internet email address> (optional)
+=IProtBWEmail <internet email address> (optional)
+
+New in Version 1.9.0. If present the email addresses in these
+directives overrides the address in IProtEmail or the address in
+ServerAdmin for abuse blocks, password hacking blocks, and bandwidth
+blocks respectively.
+
+Example:
+IProtAbuseEmail admin@xxxdomain.com
+IProtBWEmail admin@xxxdomain.com,accounting@xxxdomain.com
+
+
+=IProtNotifyIP On/Off (optional)	(New in Version 1.9.0)
+
+This is a flag that defaults to 'On' (or true). It is set to 'Off' (or
+false), the module will not send email notifications for hack
+attempts.
 
 Example:
 IProtNotifyIP Off
 
 
-==IProtNotifyUser On/Off (optional)
-This is a flag that defaults to true. It is set to false (or 'Off'), the module
-will not send email notifications for username abuse.
+=IProtNotifyUser On/Off (optional)	(New in Version 1.9.0)
+
+This is a flag that defaults to 'On'. It is set to 'Off' (or false),
+the module will not send email notifications for username abuse.
 
 Example:
 IProtNotifyUser Off
 
 
-==IProtNag On/Off (optional)
+=IProtNotifyLogin On/Off (optional)	(New in Version 1.9.0)
+
+This is a flag that defaults to 'On'. It is set to 'Off' (or false),
+the module will not send email notifications for too many failed login
+attempts abuse.
+
+Example:
+IProtNotifyLogin Off
+
+iProtect sends email using the sendmail command, sendmail must be
+found in the default shell's path (the shell used by the libc popen()
+and system() functions).
+
+
+=IProtNotifyBW <On/Off> (optional)	(New in Version 1.9.0)
+
+This is a flag that defaults to 'On'. It is set to 'Off', the module
+will not send email notifications for blocks placed for exceeding
+bandwidth.
+
+Example:
+IProtNotifyBW Off
+
+
+=IProtNag On/Off (optional)
 
 This is a flag that defaults to false.  If it is set to true (or 'On'), the
 module will send a notification on _every_ detected authorization failure.
@@ -239,46 +389,261 @@ This is annoying, but can be useful for debugging.
 Example:
 IProtNag On
 
-==IProtEnable On/Off (optional)
 
-This is a flag which defaults to true.  If you have a configuration where
-you are supporting IProtect with multiple virtual hosts, you can use this flag
-to turn off IProtect for a specific virtual host.  If you put this in the
-global configuration area, you _can_ set it to false by default, and then set
-it to true inside the <VirtualHost> directive.
+=IProtNotifyIP On/Off (optional)	(New in Version 1.9.0)
+
+"On" sends an email when a IP trips the hack detector and is blocked.
+"Off" blocks with no email. Default is "On".
+
+Example:
+ProtNotifyIP Off
+
+
+=IProtNotifyBW On/Off (optional)	(New in Version 1.9.0)
+
+"On" sends an email when a user is blocked for eceeding bandwidth.
+"Off" blocks with no email. Default is "On".
+
+
+=IProtNotifyUser On/Off (optional)	(New in Version 1.9.0)
+
+"On" sends an email when a user trips the hack detector and is
+blocked. "Off" blocks with no email. Default is "On".
+
+
+=IProtNotifyLogin On/Off (optional)	(New in Version 1.9.0)
+
+"On" sends an email when a user trips the shared password detector and
+is blocked. "Off" blocks with no email. Default is "On".
+
+
+=IProtEnable On/Off (optional)
+
+This is a flag which defaults to "On". If you have a configuration where you
+are supporting iProtect with multiple virtual hosts, you can use this flag to
+turn off iProtect for a specific virtual host. If you put this in the global
+configuration area, you _can_ set it to false by default, and then set it to
+true inside the <VirtualHost> directive.
 
 Example:
 IProtEnable Off
 
-==IProtExternalIP (optional)
 
-For advanced use only.  If you like, you can specify an external command to be
-invoked whenever a hack attempt block happens.  In addition to sending an email,
-the module will call an external shell command.  This will fail if Apache does
-not have permission to execute the external command, and is potentially a security
-problem if Apache is running as root.  The IP address is inserted into the
-output string if it contains a %s.   This can be used with ipchains (if
-available) to provide low level blocking of abusive IP addresses.
+=IProtExternalIP (optional)
+
+For advanced use only. If you like, you can specify an external command to be
+invoked whenever a hack attempt block happens. In addition to sending an
+email, the module will call an external shell command. This will fail if the
+user Apache is running as does not have permission to execute the external
+command, and is potentially a security problem if Apache is running as root.
+The IP address is inserted into the output string if it contains a %s. This
+can be used with ipchains (if available) to provide low level blocking of
+abusive IP addresses.
 
 Example:
 IProtExternalIP "echo %s >> /tmp/iprot_log"
 IProtExternalIP "/sbin/ipchains -I input -s %s -j DENY -l"
 IProtExternalIP "/sbin/route add -host %s gw 333.444.555.666"
+IProtExternalIP "/some/custom/program 'ip %s'"
 
 
-==IProtExternalUser (optional)
+=IProtExternalUser (optional)
 
-For advanced use only.  If you like, you can specify an external command to be
-invoked whenever a username block happens.  In addition to sending an email,
-the module will call an external shell command.  This will fail if Apache does
-not have permission to execute the external command, and is potentially a security
-problem if Apache is running as root.  The Username is inserted into the
-output string if it contains a %s.   This can be used for external logging programs,
-or automated programs to do something with the username when abuse happens, etc.
+For advanced use only. If you like, you can specify an external command to be
+invoked whenever a username block happens. In addition to sending an email,
+the module will call an external shell command. This will fail if the user
+Apache is running as does not have permission to execute the external
+command, and is potentially a security problem if Apache is running as root.
+The Username is inserted into the output string if it contains a %s. This can
+be used for external logging programs, or automated programs to do something
+with the username when abuse happens, etc.
 
 Example:
 IProtExternalUser "echo %s >> /tmp/iprot_log"
 IProtExternalUser "/some/custom/program %s"
+IProtExternalUser "/some/custom/program 'user %s'"
 
 
+New in Version 1.9.0
+--------------------
 
+The most important new feature is version 1.9.0 is blocking of a user name
+after a specified number of different hosts (IP addresses) have attempted
+invalid authentication using a username. If the username is valid and the
+user has successfully authenticated within the IProtAccessTimeout they are
+not blocked, otherwise valid users may be blocked for the IProtFailedTimeout.
+The timestamp of valid accesses is now updated with every access.
+
+
+=IProtFailedThreshold	<integer>
+
+IProtFailedThreshold is the number of failed authentiction/login attempts
+from different IPs or "hits" that are allowed, within the IProtFailedTimeout,
+before a username is prohibited from further access for the interval
+specified by IProtFailedTimeout.
+
+Example:
+IProtFailedThreshold 4
+
+
+=IProtFailedTimeout	<integer>
+
+IProtFailedTimeout is the interval in seconds for the failed
+authentication check.
+
+Example:
+IProtFailedTimeout 300
+
+
+=IProtFailedCompareN	<integer>
+
+IProtFailedCompareN allows you to specify the number of "significant" blocks
+in the IP Address for the failed authentication check. If you would like to
+ignore IP duplicates on the same subnet (127.12.123.*), then set
+IProtCompareN to 3. Full restriction would be 4. If any part of the IP is
+different, a hit will be registered. This works the same way as
+IProtCompareN.
+
+Example:
+IProtFailedCompareN 2
+
+
+=IProtAbuseStatusReturn	<[012]>
+=IProtHackStatusReturn	<[012]>
+=IProtBWStatusReturn	<[012]>
+
+IProtAbuseStatusReturn, IProtHackStatusReturn, and IProtBWStatusReturn
+control what iProtect does when it blocks a connection attempt with an
+HTTP STATUS Forbidden (403) for password abuse (sharing), password
+hacking, and exceeding bandwidth respectively.
+
+Version 1.8.1 always returned a status 403. Version 1.9.x allows you
+to return 3 different things; no response, 403 status, or a
+transparent redirect.
+
+If IProtAbuseStatusReturn, IProtHackStatusReturn, or
+IProtBWStatusReturn is 0 iProtect closes the connection without
+returning anything to the browser.
+
+If IProtAbuseStatusReturn, IProtHackStatusReturn, or
+IProtBWStatusReturn is 1 iProtect returns an HTTP STATUS Forbidden
+(403) error to the browser. This is what version 1.8.1 did. This is
+the default.
+
+If IProtAbuseStatusReturn, IProtHackStatusReturn, or
+IProtBWStatusReturn is 2 iProtect transparently (ie. no 301 or 302
+redirect status code is sent to the browser) redirects the browser to
+the URL in IProtAbuseRedirectURL or IProtHackRedirectURL as
+appropriate.
+
+0: close connection, nothing returned to browser
+1: HTTP STATUS is Forbidden (403) returned to browser
+2: browser redirected to IProtRedirectURL
+
+Example:
+IProtAbuseStatusReturn 2
+IProtHackStatusReturn 0
+
+
+=IProtAbuseRedirectURL <URL string>
+=IProtHackRedirectURL <URL string>
+=IProtBWRedirectURL <URL string>
+
+The URLs to redirect Forbidden access attempts to if
+IProtAbuseStatusReturn, IProtHackStatusReturn, and/or
+IProtBWRedirectURL is set to 2. This URL may be relative to the
+document root or a fully qualified URL. The URL in the first example
+is relative to the root of the apache document tree (example:
+/usr/local/apache/htdocs).
+
+Example:
+IProtAbuseRedirectURL /account-abuse.html
+IProtHackRedirectURL http://www.foo.bar/somefile.html
+IProtBWRedirectURL /bandwidth.html
+
+
+=IProtNoHEADReq		<(Off|On)>
+
+If IProtNoHEADReq is set to "Off" HEAD requests to pages requiring
+authentication normally are handled normally. If it is set to "On" the
+connection is closed without returning anything to the browser on all
+HEAD requests to these pages. We recommend this be set to "On" as there
+is no legit reason for a HEAD request to be used for authentication...only
+hack programs seem to use this, no user's browser will authenticate using a
+HEAD request that we know of!
+
+Off: Handle HEAD requests to pages requiring authentication normally.
+On: Drop connection on all HEAD requests to pages requiring authentication.
+
+Example:
+IProtNoHEADReq On
+
+
+=IProtMaxBytesUser <integer> (optional)
+
+Maximum bytes of transfer per user per day (bandwidth) in megabytes.
+Set to 0 for no limit. Default is 0, bandwidth checking disabled.
+
+Example:
+IProtMaxBytesUser 250
+
+
+=IProtAllHostsAdmin On
+
+Allows the admin interface to view/edit blocks for all the virtual
+servers. It must be set in the global config section. Your web browser
+must connect to the IP address or the main server hostname, not one of
+the virtual servers.
+
+This directive does nothing in a virtual server config.
+
+
+ADMIN INTERFACE
+---------------
+
+As of version 1.9.0 there is now a web accessable admin interface to manipulate
+some of the iProtect directives and to add/edit/view/delete blocks.
+You do not need to create/setup any directories,files, or scripts for the admin
+interface.
+The following needs to be added to your httpd.conf or .htaccess:
+(it is preferred to place these directives in your httpd.conf file)
+
+   <Location /iprot-admin>
+	SetHandler iprot-admin
+    	Order deny,allow
+    	Deny from all
+    	Allow from owner.xxx-domain.com
+   </Location> 
+
+This <Location /iprot-admin> directive specifies the URL of the iProtect admin
+web interface. The example creates aURL:http://xxx-domain.com/iprot-admin.
+
+This must be exactly as the example:
+    SetHandler iprot-admin
+
+These directives limit access to the admin interface:
+    Order deny,allow
+    Deny from all
+    Allow from owner.xxx-domain.com
+
+The "Allow from" should specify the IP address or domain allowed to access
+the admin interface.
+
+IMPORTANT: you must use Apache http.conf or .htaccess directives to
+limit access to your admin interface or anyone on the net can connect.
+You can protect your admin using access control as in the
+example or using whatever password system you are using on the rest of
+your site.
+
+If you use passwords you will need to use a different AuthName or your
+users will be able to connect to your admin interface.
+
+It is recommended that you test the security of your admin interface
+by attempting to access it from hosts you have not given access
+permission to.
+
+One <Location ...> directive in the global section will create an
+admin interface for all virtual domains with identical access
+restrictions. You will need to put a <Location ...> directive in each
+<VirtualHost ...> directive to have different access restrictions for
+each virtual host.

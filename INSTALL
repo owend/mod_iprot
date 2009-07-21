@@ -1,0 +1,62 @@
+iProtect for Apache
+Copyright 1998-2003 Digital Concepts
+http://www.digital-concepts.net
+All rights reserved.
+
+VERSION 1.9.0beta10
+
+INSTALLATION
+------------
+
+=Apache Recompile (Static):=
+
+To build a statically linked apache with mod_iprot untar the
+distribution in src/modules in the Apache source tree.
+
+Untar the distribution in apache_1.3.n/src/modules in the Apache
+source tree.
+
+Along with any other configure options you require...do:
+
+> cd apache_1.3.n/
+> make distclean
+> ./configure --activate-module=src/modules/iprot/libiprot.a --enable-module=iprot
+> make
+
+
+=Apache DSO (Dynamic):=
+
+Configure apache with the SHARED_CHAIN compilation rule when using
+iprot as a DSO module to prevent mod_iprot from including an extra
+copy of libdbm.
+
+
+To build a dynamically linked mod_iprot in apache source tree.
+
+Untar the distribution in apache_1.3.n/src/modules in the apache source tree.
+
+> cd apache_1.3.n/
+> ./configure --activate-module=src/modules/iprot/mod_iprot.a --enable-shared=iprot
+
+If you are compiling only the iprot module:
+> cd apache_1.3.n/src/modules/iprot
+> make
+> cp mod_iprot.so apache/libexec
+
+If you are compiling all of Apache:
+> make
+
+
+To build a dynamically linked mod_iprot outside the apache source build tree,
+you need to use Apache's apxs utility. Use the path to apxs in your Apache
+install directory instead of "/usr/local/apache/bin/apxs".
+
+> cd iprot/
+> /usr/local/apache/bin/apxs -o mod_iprot.so -c iprot_db.c iprot_admin.c mod_iprot.c
+> cp mod_iprot.so apache/libexec (or wherever your dynamic modules are located)
+
+Now configure iprot in your httpd.conf file according to the instructions in
+the README file.
+
+Don't forget to make a directory for iprot's permanent data files, see
+"Creating the iprot directory" in the README file.

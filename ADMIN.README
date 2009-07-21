@@ -1,0 +1,303 @@
+iProtect for Apache
+Covered under one or more copyrights and patents
+1998-2003 Digital Concepts
+http://www.digital-concepts.net
+All rights reserved.
+
+VERSION 1.9.0beta10
+
+iProtect Web Admin Interface
+----------------------------
+
+INTRODUCTION
+------------
+
+The Web Admin Interface is new in iProtect version 1.9.x See the README
+file for setup instructions.
+
+The examples in this document were produced using the links text mode
+web browser (http://links.sourceforge.net).
+
+
+=Using the iProtect Web Admin Interface
+-----------------------------
+
+After adding the appropriate <Location /iprot-admin> directives to your
+httpd.conf file load the URL:http://xxx-domain.com/iprot-admin. You are
+now at the menu page.
+
+
+=iProtect Admin Menu
+
+--------------------------------------------------------------------------------
+                           View/Edit iProtect Blocks
+                     Copyright 1999-2003, Digital Concepts
+                                 Email Support
+                             Server: xxx-domain.com
+
+                       +-------------------------------+
+                       | View/Edit iProtect Blocks     |
+                       |-------------------------------|
+                       | User Added Blocks and Ignores |
+                       |-------------------------------|
+                       | iProtect Configuration        |
+                       +-------------------------------+
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+There are 4 links on this page. Starting at the top the first is "Email
+Support". This is a mailto: URL to email iProtect support.
+
+The remaining three links are "View/Edit iProtect Blocks", "User Added
+Blocks and Ignores", and "iProtect Configuration". These are described
+below.
+
+
+=View/Edit iProtect Blocks
+
+This page lists all of the blocks currently in effect. The first link on
+the page (starting at the top) is "iProtect Admin Menu", this link takes
+you back to the iProtect Admin Menu. All pages other than the menu page
+have this link.
+
+The "Current Time" is the request time for this page as logged by the
+server.
+
+Below the "Current Time" the blocks are listed.
+
+"Hostname" is your server name. "User Name or IP Address" is the target
+of the block, a user name or an ip address depending on the block type.
+
+"Block Type" tells you why the block was placed. Block types are:
+
+	"user placed block" is a block placed using the iProtect Admin
+	Interface.
+
+	"failed login attempts" is a block placed on a user name because
+	of more than IProtThreshold failed login attempts by that user,
+	either an incorrect password was used or the user does not
+	exist.
+
+	"password sharing" is a block placed on a user name because of
+	successful logins from more than IProtThreshold different ip
+	addresses.
+
+	"password hacking" is a block placed on an ip addresses because
+	of more than IProtFailedThreshold failed logins from that
+	address.
+
+"Block Expires" tells when this block will expire.
+
+"View/Edit" is a link to the page where the block can be deleted or made
+permanent.
+
+--------------------------------------------------------------------------------
+                           View/Edit iProtect Blocks
+                     Copyright 1999-2003, Digital Concepts
+                                 Email Support
+
+                              iProtect Admin Menu
+                             Server: xxx-domain.com
+
+                  +-----------------------------------------+
+                  | Current Time | Wed Jan 22 11:21:59 2003 |
+                  +-----------------------------------------+
+
+   +------------------------------------------------------------------------+
+   |                     | User Name  | Block    | Block        |           |
+   | Hostname            | or IP      | Type     | Expires      | View/Edit |
+   |                     | Address    |          |              |           |
+   |---------------------+------------+----------+--------------+-----------|
+   |                     |            | user     |              |           |
+   | xxx-domain.com      | joe99      | placed   | permanent    |   ****    |
+   |                     |            | block    |              |           |
+   |---------------------+------------+----------+--------------+-----------|
+   |                     |            | failed   | Wed Jan 22   |           |
+   | xxx-domain.com      | david      | login    | 11:26:26     |   ****    |
+   |                     |            | attempts | 2003         |           |
+   |---------------------+------------+----------+--------------+-----------|
+   |                     |            | password | Wed Jan 22   |           |
+   | xxx-domain.com      | joe        | sharing  | 12:26:22     |   ****    |
+   |                     |            |          | 2003         |           |
+   |---------------------+------------+----------+--------------+-----------|
+   |                     |            | password | Wed Jan 22   |           |
+   | xxx-domain.com      | 10.0.2.101 | hacking  | 11:39:04     |   ****    |
+   |                     |            |          | 2003         |           |
+   +------------------------------------------------------------------------+
+
+                              iProtect Admin Menu
+
+
+
+
+--------------------------------------------------------------------------------
+
+
+=View/Edit
+
+The link on the right of a block takes you to this page. You can see the
+details of what caused a block to be placed, delete the block, or make
+the block permanent.
+
+--------------------------------------------------------------------------------
+                            View/Edit iProtect Block
+                     Copyright 1999-2003, Digital Concepts
+                                 Email Support
+
+                              iProtect Admin Menu
+                            Server: xxx-domain.com
+
+                  +-----------------------------------------+
+                  | Current Time | Wed Jan 22 12:34:47 2003 |
+                  +-----------------------------------------+
+
+                 +--------------------------------------------+
+                 | User joe blocked for password sharing (7). |
+                 |--------------------------------------------|
+                 | Expires at Wed Jan 22 13:33:51 2003 .      |
+                 |--------------------------------------------|
+                 | IP             | Expires at                |
+                 |----------------+---------------------------|
+                 | 10.0.2.101     | Wed Jan 22 13:33:51 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.102     | Wed Jan 22 13:33:54 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.103     | Wed Jan 22 13:33:57 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.104     | Wed Jan 22 13:33:59 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.105     | Wed Jan 22 13:34:02 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.106     | Wed Jan 22 13:34:07 2003  |
+                 |----------------+---------------------------|
+                 | 10.0.2.107     | Wed Jan 22 13:34:10 2003  |
+                 |----------------+---------------------------|
+                 |  Delete Block  |      Make Permanent       |
+                 +--------------------------------------------+
+--------------------------------------------------------------------------------
+
+
+=User Added Blocks and Ignores
+
+This page allows you to add or delete user added block or ignores.
+
+--------------------------------------------------------------------------------
+                     iProtect User Added Blocks and Ignores
+                     Copyright 1999-2003, Digital Concepts
+                                 Email Support
+
+                              iProtect Admin Menu
+                            Server: xxx-domain.com
+
+                  +-----------------------------------------+
+                  | Current Time | Wed Jan 22 12:43:49 2003 |
+                  +-----------------------------------------+
+
+   +------------------------------------------------------------------------+
+   |           User Added Blocks and Ignores for xxx-domain.com            ||
+   |-----------------------------------------------------------------------||
+   | User Name or IP Address   | Action           | Expires       | Delete ||
+   |---------------------------+------------------+---------------+--------||
+   | joe99                     | blocked          | permanent     | [ ]    ||
+   |-----------------------------------------------------------------------||
+   |-----------------------------------------------------------------------||
+   |-----------------------------------------------------------------------||
+   |-----------------------------------------------------------------------||
+   |              Add Blocks and Ignores for xxx-domain.com                ||
+   |-----------------------------------------------------------------------+|
+   | User Name or IP Address   | Block  | Ignore  | Days  | Hours |         |
+   |---------------------------+--------+---------+-------+-------+---------|
+   | _________________________ |  [ ]   |   [ ]   | 0___  | 0___  |        ||
+   |---------------------------+--------+---------+-------+-------+--------+|
+   | _________________________ |  [ ]   |   [ ]   | 0___  | 0___  |        ||
+   |---------------------------+--------+---------+-------+-------+--------+|
+   | _________________________ |  [ ]   |   [ ]   | 0___  | 0___  |        ||
+   |---------------------------+--------+---------+-------+-------+--------+|
+   | _________________________ |  [ ]   |   [ ]   | 0___  | 0___  |        ||
+   |---------------------------+-------------------------------------------+|
+   | [ Submit ] [ Clear ]      | Set Days and Hours to 0 for permanent     ||
+   |                           | Block or Ignore.                          ||
+   +------------------------------------------------------------------------+
+
+                              iProtect Admin Menu
+--------------------------------------------------------------------------------
+
+The first section allows you to delete user added blocks or ignores.
+Click the check box in the column under "Delete", then click "[ Submit ]" 
+to delete a user added block.
+
+The second section allows you to add block and ignores. 
+
+Type the user name or ip address you wish to block or ignore in the
+first column under "User Name or IP Address". 
+
+Click the radio button under "Block" or "Ignore" depending on the action
+you desire. 
+
+In the columns under "Days" and "Hours" enter the time interval until
+you want the block to expire. For a permanent block or ignore leave both
+set to 0.
+
+When you're finished click "[ Submit ]" to place your blocks and/or
+ignores. If you need to add more than 4 you must add them in blocks of
+4. The "[ Clear ]" will clear the form so you can start over.
+
+
+=iProtect Configuration
+
+This page shows you your current iProtect configuration for
+server.domain.com. The Admin Interface works with the real or virtual
+server in the URL only. There is a separate Admin Interface for each
+server you host.
+
+--------------------------------------------------------------------------------
+                   iProtect Configuration for xxx-domain.com
+                     Copyright 1999-2003, Digital Concepts
+                                 Email Support
+
+                              iProtect Admin Menu
+ 
+    +----------------------------------------------------------------------+
+    |iProtect Version      |                                   1.9.0-beta10|
+    |----------------------+-----------------------------------------------|
+    |Apache Release        |                                       10327100|
+    |----------------------+-----------------------------------------------|
+    |IProtThreshold        |                                              6|
+    |----------------------+-----------------------------------------------|
+    |IProtAuthTimeout      |                                    300 seconds|
+    |----------------------+-----------------------------------------------|
+    |IProtAccessTimeout    |                                         1 hour|
+    |----------------------+-----------------------------------------------|
+    |IProtCompareN         |                                              4|
+    |----------------------+-----------------------------------------------|
+    |IProtDBFile           |/tmp/iprot-www                                 |
+    |----------------------+-----------------------------------------------|
+    |IProtStatusReturn     |                                              1|
+    |----------------------+-----------------------------------------------|
+    |IProtRedirectURL      |/403.test.html                                 |
+    |----------------------+-----------------------------------------------|
+    |IProtNoHEADReq        |                                            Off|
+    |----------------------+-----------------------------------------------|
+    |IProtFailedThreshold  |                                              6|
+    |----------------------+-----------------------------------------------|
+    |IProtFailedTimeout    |                                    300 seconds|
+    |----------------------+-----------------------------------------------|
+    |IProtFailedCompareN   |                                              4|
+    |----------------------+-----------------------------------------------|
+    |IProtBlockIgnoreDBFile|/usr/local/apache.test/iprot/iprot_block_ignore|
+    +----------------------------------------------------------------------+
+--------------------------------------------------------------------------------
+
+new stuff:
+
+
+bandwidth, list bandwidth by user
+
+If the user has transfered less than 0.001 Mbyte it's displayed as
+0.00 Mbytes
+
+User Details
