@@ -1,0 +1,47 @@
+Version 1.7  3/14/01
+
+! added IProtExternal.  Enter any command and it will be invoked when a hack
+  attempt is detected (during the initial auth attempt phase). use %s for IP
+! removed IProtIgnore and replaced it with IProtIgnoreUser and IProtIgnoreIP
+o added IProtIgnoreUser=  One or more strings or regex patterns
+o added IProtIgnoreIP= One or more strings or regex patters
+o fixed a couple bugs
+  - IProtNag was not false by default
+  - Email still sometimes went to AdminEmail instead of IProtEmail
+
+Version 1.6  3/18/00
+
+* added IProtEmail for more generic email notification
+* added IProtEnable to toggle module on/off in different virtual hosts
+* added IProtNag flag to toggle email on/off for repeat attempts (first attempt   always causes an email to be sent)
+  
+Version 1.5  11/9/99
+* Split out Auth/Access Timeout variables.  Now you need to set 2 variables.
+  IProtAuthTimeout is in seconds, and is the timeout for password hacks.
+  IProtAccessTimeout is in hours, and is the timeout for shared/stolen passes.
+* Added new IProtNag variable.  By default this is "Off".  Email notification
+  will now only be sent ONCE for each uniquely detected IP address or username.
+  If it is set to "On" then email will be sent every time a hack or stolen 
+  password is detected (this is the pre-1.5 behavior). 
+
+Version 1.4  10/13/99
+
+* Changed algorithm used for detecting password "hack" attempts, based on
+  user feedback.  (Checks passwords instead of usernames...)
+* When sending mail, notify whether it's a hack attempt or a stolen password.
+* Changed error level if dbopen fails to just a warning. This happens 
+  sometimes under heavy load because of locking contention on the db file.  
+
+Version 1.3  9/20/99
+
+* Added protection against password "hack" attempts.
+* Misc bugfixes for improved db compatibility.
+
+Version 1.2  7/7/99 
+* Removed dependency on GDBM
+* Cleaned up some stray debug print statements.
+
+Version 1.1  3/8/99
+
+* Added optional parameter IProtIgnore
+* Added server hostname to notification email

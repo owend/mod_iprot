@@ -1,0 +1,255 @@
+iProtect for Apache
+Covered under one or more copyrights and patents 
+1998-2001 Digital Concepts
+http://www.digital-concepts.net
+All rights reserved.
+
+VERSION 1.7
+
+INTRODUCTION
+------------
+
+IProtect is a plug in module for Apache which provides additional password
+based security above and beyond mod_auth.  It maintains a record of the 
+IP addresses and authenticated usernames connecting to a web site.  If too
+many different IP addresses are detected within a certain time period, that
+user is locked out of the web site and an email is sent to the web site
+administrator.   Also, if someone runs a hacking program that tries a large
+number of random usernames and passwords, they will be blocked from further
+access to the server.  IProtect does not read or alter your existing password
+files at all, so it will work no matter what kind of authentication you are 
+using.  
+
+Installing IProtect requires recompiling Apache on your server, which usually
+requires root access.  Since there are many different operating systems
+supported by Apache, and many different possible configurations, not all
+installation issues can be dealt with in the README file, but under new
+versions of Apache, installation is a very simple process.
+
+For users already familiar with the operation of this module, check out 
+the CHANGES file in this distribute for the latest updates.
+
+
+INSTALLATION
+------------
+
+Save a copy of your old httpd binary and conf file just in case.
+
+=Apache Recompile (Static):=
+
+To Install From Object File: If you have a precompiled object file 
+(i.e. mod_iprot.o) you have two choices.  You can either add the following 
+line to the Configuration.tmpl file in the root Apache source directory:
+Module iprot_module  modules/iprot/mod_iprot.o
+
+Or you can run the Apache configure script with the flag
+
+--activate-module=/full/path/to/mod_iprot.o 
+along with your other flags and settings.
+
+Whichever you do, you must run the Apache configure script to build new
+makefiles, then compile Apache.
+
+
+To Install From Source File: If you have a source code file (i.e. mod_iprot.c)
+Run the Apache configure script with the flag
+
+--add-module=/full/path/to/mod_iprot.c 
+
+along with your other flags and settings.
+
+Now do a 'make'
+
+Shut down httpd, copy the new httpd binary to your httpd binary location
+and restart.
+
+=Apache DSO (Dynamic):=
+
+This is the easy part.  If you have Apache compiled with mod_so, you can
+use the apxs utility from the Apache distribution to automatically compile
+and install mod_iprot.  A makefile is provided which does this.
+
+   cd (path to where mod_iprot.c is located)
+   make install
+
+
+CONFIGURATION
+-----------------------------
+
+Add the following minimum set of configuration variables to your httpd.conf 
+in a global area (outside a virtualhost directive):
+
+<IfModule mod_iprot.c>
+   IProtThreshold 10
+   IProtAuthTimeout 300
+   IProtAccessTimeout 24
+   IProtDBFile /tmp/prot
+   IProtCompareN 2
+</IfModule>
+
+These are merely suggested defaults. For "high traffic" sites, it is more 
+reasonable to start out with IProtThreshold at 30, and IProtCompareN at 3.
+
+Optional directives are described in further detail later in this document.  
+
+
+OPERATION
+---------
+
+  mod_iprot does not do much external logging during operation, to minimize
+the system load.  It will print a line to your Apache error_log if it detects 
+unauthorized access, and simulaneously send mail to the administrator of the 
+server to warn you of unauthorized access. 
+  IProtect will block access to your authorized access areas for the Timeout
+period, but for safety and security purposes, does not modify your password 
+files.  If you think a password has been compromised, you should delete the 
+user or change the password yourself.  
+  It is normal to see a WARNING message in your Apache error log files  
+'Resource temporarily unavailable' in regards to the iProtDBFile.
+This message is printed to the log file by Apache when the DB file is busy, 
+it is not a performance problem, or an error in any way.  It is normal to 
+see this on high traffic sites.
+  If you need to clear out the database of blocked IPs, it is safe to delete
+the IProtDB file.  It will simply be recreated.  Restarting Apache is not
+necessary.
+
+  IProtect issues a 403 server error when it catches an unauthorized access 
+attempt. You can redirect this traffic with the use of an ErrorDocument 
+directive.
+The directive is generally placed in a VirtualHosts directive or in the 
+.htaccess file (if supported)
+
+Example
+ErrorDocument 403 http://www.foo.com
+
+
+HTTPD GLOBAL CONFIGURATION
+-------------------
+
+The following configuration variables are required in httpd.conf in a global
+location(outside a virtualhost directive)
+
+=IProtThreshold 
+
+IProtThreshold is the number of "hits" that are allowed before a username is
+prohibited from further access.   Set this to a reasonable number to allow for
+users with dynamic IP addresses and AOL proxies.
+
+Example:
+
+IProtThreshold 20
+
+=IProtAccessTimeout and IProtAuthTimeout
+
+IProtAccessTimeout is the number of hours that IProt will store each unique
+IP address.  Minimum is 1 hour.
+
+IProtAuthTimeout is the number of seconds that IProt remembers login
+attempts.  If a hacking script is running, it will try hundreds of passwords
+per second.  Most users can't type that fast, but you should still set this
+reasonably high to allow for AOL users who are coming through proxies (since
+they all look like the same host to mod_iprot).
+
+Example:
+
+IProtAccessTimeout 24  # 24 hours
+IProtAuthTimeout 300   # 5 minutes
+
+=IProtDBFile
+
+IProtDBFile specifies the location of the temporary storage of IP addresses
+while the program is in operation.  The server must have write access to the
+directory.  Your htaccess file is still the master location for all usernames 
+and passwords.  An extension is automatically appended onto this file, 
+depending on the type of DB support available on your system.
+
+Example:
+
+IProtDBFile /tmp/prot
+
+
+=IProtCompareN
+
+IProtCompareN allows you to specify the number of "significant" blocks in
+the IP Address.  If you would like to ignore IP duplicates on the same
+subnet (127.12.123.*), then set IProtCompareN to 3.  Full restriction would
+be 4.  If any part of the IP is different, a hit will be registered.
+
+Example
+IProtCompareN 2
+
+The following variables are optional in httpd.conf
+
+==IProtIgnoreUser (optional)
+
+IProtIgnoreUser is used to indicate one or more (or a range) usernames that are
+ignored when tracking incoming requests. Just enter user names, one per line, 
+and the module will ignore them. You can also enter simple regular expressions 
+(see the documentation for the mod_rewrite module for details on the format).  
+Notice that this used to be called IProtIgnore, but has changed.  
+ 
+Example
+
+IProtIgnoreUser bob
+IProtIgnoreUser foo.*         (ignore anything beginning with foo)
+IProtIgnoreUser foo[0-9]*     (ignore foo with any number of trailing digits)
+
+==IProtIgnoreIP (optional)
+
+IProtIgnoreIP is used to indicate one or more (or a range) of IPs to ignore 
+when tracking incoming requests.  Use it the same way as IProtIgnoreUser.  
+Notice that a backslash is necessary here, because the regex library uses 
+'.' to match "anything".  If you leave those out, you can get unexpected 
+results.
+
+Example:
+IProtIgnoreIP 123\.12\.34\.123     (ignore this specific IP address)
+IProtIgnoreIP 123\.12\.34\.[0-9]*  (ignore this range of IPs)
+
+==IProtEmail (optional)
+
+IProtEmail <some valid internet email address>
+By default, iProtect will send its notification emails to whatever email is 
+specified for the ServerAdmin Directive for the virtualhost that has the 
+abuse/hacking, if no IprotEmail or ServerAdmin is used, iProtect will then 
+try to send the notifications to the global ServerAdmin setting.  Use this
+to override the default email address.
+
+==IProtNag On/Off (optional)
+
+This is a flag that defaults to false.  If it is set to true (or 'On'), the 
+module will send a notification on _every_ detected authorization failure.  
+This is annoying, but can be useful for debugging.
+
+Example:
+
+IProtNag On
+
+==IProtEnable On/Off (optional)
+
+This is a flag which defaults to true.  If you have a configuration where 
+you are supporting IProtect with multiple virtual hosts, you can use this flag
+to turn off IProtect for a specific virtual host.  If you put this in the 
+global configuration area, you _can_ set it to false by default, and then set 
+it to true inside the <VirtualHost> directive.
+
+Example:
+
+IProtEnable Off
+
+==IProtExternal (optional)
+
+For advanced use only.  If you like, you can specify an external command to be
+invoked whenever a block happens.  In addition to sending an email, the module
+will call an external shell command.  This will fail if Apache does not have 
+permission to execute the external command, and is potentially a security 
+problem if Apache is running as root.  The IP address is inserted into the 
+output string if it contains a %s.   This can be used with ipchains (if
+available) to provide low level blocking of abusive IP addresses.
+
+Example: 
+
+IProtExternal "echo %s >> /tmp/iprot_log"
+IProtExternal "/sbin/ipchains -I input -s %s -j DENY -l"
+IProtExternal "/sbin/route add -host %s gw 333.444.555.666"
+
