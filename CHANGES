@@ -1,3 +1,10 @@
+Version 1.8.1 8/24/01
+* Split Notify directive into NotifyIP and NotifyUser so user
+  can turn off email for either hack attempts or abuse or both.
+
+Version 1.8  7/10/01
+* fixed segmentation faulting on newer versions of FreeBSD with Berkley DB
+
 Version 1.7  3/14/01
 
 ! added IProtExternal.  Enter any command and it will be invoked when a hack

@@ -1,3 +1,10 @@
+/*
+* iProtect for Apache
+* http://www.digital-concepts.net
+
+* VERSION 1.8.1
+
+*/
 
 #include "httpd.h"
 #include "http_config.h"
@@ -11,6 +18,10 @@
 #include <stdlib.h>
 #include <time.h>
 
+/*
+#define DB_DBM_HSEARCH 1
+#include <db.h>  */  /*new db header stuff.  is this portable? */
+
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__) \
     && __GLIBC__ >= 2 && __GLIBC_MINOR__ == 1
   #include <db1/ndbm.h>
@@ -23,9 +34,9 @@
   #endif
 #endif
 
-#if defined O_EXLOCK 
+#if defined O_EXLOCK
  #define IPROT_DB_FLAGS O_RDWR | O_CREAT | O_EXLOCK
-#else 
+#else
  #define IPROT_DB_FLAGS O_RDWR | O_CREAT
 #endif
 
@@ -45,7 +56,7 @@
 
 #if APACHE_RELEASE >= 1030000
   #define LOG_ERROR(CONF, FMT, VAR) (ap_log_error(APLOG_MARK, APLOG_WARNING, CONF, FMT, VAR))
-  #define LOG_PRINTF(CONF, FMT, VAR) (ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, CONF, FMT, VAR))
+  #define LOG_PRINTF(CONF, FMT, VAR) (ap_log_error(APLOG_MARK, APLOG_INFO, CONF, FMT, VAR))
   #define PALLOC ap_palloc
   #define GET_MODULE_CONFIG ap_get_module_config
   #define PSTRDUP ap_pstrdup
@@ -73,7 +84,8 @@ typedef struct {
   char *external_proguser;
   int nag;
   int enabled;
-  int notify;
+  int notifyip;
+  int notifyuser;
   table *ignore_users;
   table *ignore_ips;
 } prot_config_rec;
@@ -100,7 +112,8 @@ static void *create_prot_config(pool *p, server_rec *s)
   rec->external_proguser = NULL;
   rec->email = NULL;
   rec->nag = 0;
-  rec->notify = 1;  // send mail by default
+  rec->notifyip = 1;  // send hack attempt mail by default
+  rec->notifyuser = 1;  // send abuse mail by default
   rec->enabled = 1;  // enabled by default
   rec->ignore_users = ap_make_table(p, 20);
   rec->ignore_ips = ap_make_table(p, 20);
@@ -124,7 +137,8 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
   new->external_proguser = new->external_proguser != NULL ? new->external_proguser : base->external_proguser;
   new->nag = new->nag;
   new->enabled = new->enabled;
-  new->notify = new->notify;
+  new->notifyip = new->notifyip;
+  new->notifyuser = new->notifyuser;
 
   return (void *)new;
 }
@@ -286,7 +300,6 @@ int count_hits (DBM *db, char *key, char *item, char *footprintStr, prot_config_
   int i, j, chars_to_count, item_match, num_items;
   int compareN = atoi(conf->compareN);
   char *newFootprint = PALLOC (r->pool, 20 + strlen(item) + strlen(footprintStr));
-  int prev_num_items = atoi(footprintStr);  /* stops at first non numeric */
   int threshold = atoi(conf->threshold);
   conn_rec *c = r->connection;
   server_rec *s = r->server;
@@ -295,6 +308,7 @@ int count_hits (DBM *db, char *key, char *item, char *footprintStr, prot_config_
   if (index (footprintStr, '\xbf') != NULL)
     ques_char = '\xbf'; /* preseve the ques_char even if list pruned to 0 */
   
+  num_items = atoi(footprintStr);  /* stops at first non numeric */
   footprint_list = PALLOC (r->pool, sizeof (footprint) * (num_items + 1));
 
   /* this will prune the list of expired entries */
@@ -438,7 +452,6 @@ static int record_auth_attempt (request_rec *r)
   /* read a password record */
 
   if (!(db = dbm_open(rec->filename, IPROT_DB_FLAGS, 0664))) {
-    LOG_ERROR(s, "could not open dbm file: %s", rec->filename);
     return DECLINED;
   }
 
@@ -457,7 +470,7 @@ static int record_auth_attempt (request_rec *r)
     else 
       nag = rec->nag;
 
-    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: nag = %d notify = %d", nag, rec->notify);
+    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: nag = %d notifyip = %d", nag, rec->notifyip);
 
     num_hits = count_hits (db, remote_ip, (char*) sent_pw, PWStr, rec, r, interval);
     dbm_close(db);
@@ -469,7 +482,7 @@ static int record_auth_attempt (request_rec *r)
 		LOG_PRINTF (s, "mod_iprot: threshold exceeded for: %s", remote_ip); 
 		if (nag)
 		{
-		  if (rec->notify)
+		  if (rec->notifyip)
                   {
 		    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: sending email to %s", admin_email);
 		    send_mail (remote_ip, (long) r->request_time, c->user, 
@@ -551,7 +564,6 @@ static int record_access_attempt (request_rec *r)
   /* read a username record */
 
   if (!(db = dbm_open(rec->filename, IPROT_DB_FLAGS, 0664))) {
-    LOG_ERROR(s, "could not open dbm file: %s", rec->filename);
     return OK;
   }
 
@@ -569,7 +581,7 @@ static int record_access_attempt (request_rec *r)
       nag = rec->nag;
 
     LOG_PRINTF (s, "mod_iprot: IPSTR = %s", IPStr);
-    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: nag = %d notify = %d", nag, rec->notify);
+    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: nag = %d notifyuser = %d", nag, rec->notifyuser);
 
     num_hits = count_hits (db, c->user, remote_ip, IPStr, rec, r, interval);
     dbm_close(db);
@@ -581,7 +593,7 @@ static int record_access_attempt (request_rec *r)
 	LOG_PRINTF (s, "mod_iprot: threshold exceeded for: %s", c->user);
 	if (nag)
 	{ 
-          if (rec->notify)
+          if (rec->notifyuser)
 	  {
 	    ap_log_error (APLOG_MARK, APLOG_INFO, s, "mod_iprot: sending email to %s", admin_email);
 	    send_mail (remote_ip, (long) r->request_time, c->user, 
@@ -676,10 +688,17 @@ static const char *set_enabled(cmd_parms *cmd, void *dummy, int val)
   return NULL;
 }
 
-static const char *set_notify(cmd_parms *cmd, void *dummy, int val)
+static const char *set_notifyip(cmd_parms *cmd, void *dummy, int val)
 {
   prot_config_rec *r = (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config, &iprot_module);
-  r->notify= val;
+  r->notifyip= val;
+  return NULL;
+}
+
+static const char *set_notifyuser(cmd_parms *cmd, void *dummy, int val)
+{
+  prot_config_rec *r = (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config, &iprot_module);
+  r->notifyuser= val;
   return NULL;
 }
 
@@ -701,7 +720,8 @@ static const command_rec prot_cmds[] =
   {"IprotIgnoreIP", set_var, &set_ignore_ip, RSRC_CONF, ITERATE, "list of IP addresses to ignore."},
   {"IProtEnable", set_enabled, NULL, RSRC_CONF, FLAG, "if set off, disable checking for this virtual host. default is enabled."},
   {"IProtNag", set_nag, NULL, RSRC_CONF, FLAG, "if set, send email every time a user trips the detector, otherwise just send one mail ever"},  
-  {"IProtNotify", set_notify, NULL, RSRC_CONF, FLAG, "if set, send email when a user trips the detector, otherwise just block them"},  
+  {"IProtNotifyIP", set_notifyip, NULL, RSRC_CONF, FLAG, "if set, send email when a user trips the hack detector, otherwise just block them"},
+  {"IProtNotifyUser", set_notifyuser, NULL, RSRC_CONF, FLAG, "if set, send email when a user trips the abuse detector, otherwise just block them"},
   {NULL}
 };
 
