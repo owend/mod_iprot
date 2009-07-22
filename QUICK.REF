@@ -3,7 +3,7 @@ Copyright 1998-2003 Digital Concepts
 http://www.digital-concepts.net
 All rights reserved.
 
-VERSION 1.9.0beta12
+VERSION 1.9.0beta15
 
 
 Quick Reference of iProtect configuration directives.
@@ -40,6 +40,12 @@ ex. IProtFailedTimeout 2
 IProtFailedCompareN
 Number of octets in IP addresses to compare on failed logins.
 ex. IProtFailedCompareN 3
+
+IProtNotifyUser [On|Off]
+If On, send email when a user trips the shared user/password abuse
+detector, otherwise just block the user.
+Default is On, enabled.
+ex. IProtNotifyUser Off
 
 IProtNotifyLogin [On|Off]
 If On, send email when a user trips the failed login detector,
@@ -108,10 +114,14 @@ This overrides IProtEmail setting.
 ex. IProtBWEmail john@doe.foo
 
 IProtNotifyBW [On|Off]
-if On, send email when a user trips the daily bandwidth block,
+If On, send email when a user trips the daily bandwidth block,
 otherwise just block them.
 Default is On, enabled.
 ex. IProtNotifyBW On
+
+IProtBWTimeout
+Timeout for bandwidth blocks. If 0 blocks last until the end of the
+calendar day in which they were placed.
 
 IProtEnable [On|Off]
 Off to disable checking for this virtual host.

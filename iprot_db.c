@@ -26,10 +26,26 @@ DBM *open_db(const char *filename, const int flags,
 {
   DBM *db;
 
-  if (!(db = dbm_open(filename, flags, mode)))
-    ap_log_reason("Can't open db file.", filename, r);
+  if (!(db = dbm_open(filename, flags, mode))) {
+    char *err_str = strerror(errno);
+
+    if (!strstr(err_str, "Resource temporarily unavailable")) {
+      /* errorn 11? */
+      ap_log_error(APLOG_MARK, APLOG_ERR, r->server,
+		   "%s: access to %s failed, reason: %s.",
+		   err_str, filename, "Can't open db file.");
+    }
+  }
 
   return db;
+}
+
+void close_db(DBM **db, request_rec *r)
+{
+  if (*db) {
+    dbm_close(*db);
+    *db = NULL;
+  }
 }
 
 int get_record(DBM *db, datum *d,
@@ -309,7 +325,7 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
     db_data = dbm_fetch(block_ignore_db, db_key);
     if (!new_str_from_datum(&db_key, &key, r) ||
 	!new_str_from_datum (&db_data, &BlockIgnoreStr, r)) {
-      dbm_close(block_ignore_db);
+      close_db(&block_ignore_db, r);
       return FALSE;
     }
 
@@ -317,7 +333,7 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
 
     if (!target || !server_hostname ||
 	!get_record(*iprot_db, &d, server_hostname, target, r))	{
-      dbm_close(block_ignore_db);
+      close_db(&block_ignore_db, r);
       return FALSE;
     }
     /* if get_record() doesn't return a record
@@ -337,14 +353,14 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
     }
 
     if (!DataStr) {  /* out of memory */
-      dbm_close(block_ignore_db);
+      close_db(&block_ignore_db, r);
       return FALSE;
     }
 
     LOG_PRINTF(s, "DataStr is '%s'", DataStr);
 
     if (!store_record(*iprot_db, server_hostname, target, DataStr, r)) {
-      dbm_close(block_ignore_db);
+      close_db(&block_ignore_db, r);
       return FALSE;
     }
 
@@ -352,14 +368,14 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
     db_key = db_nextkey;
   } /* while */
 
-  dbm_close(block_ignore_db);
+  close_db(&block_ignore_db, r);
 
   /* store update flag record */
   db_key.dsize = strlen(UPDATED_KEY);
   db_key.dptr = PALLOC(r->pool, db_key.dsize);
   if (!db_key.dptr) {
     ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-    dbm_close(*iprot_db);
+    close_db(iprot_db, r);
     return FALSE;
   }
   strncpy(db_key.dptr, UPDATED_KEY, db_key.dsize);
@@ -367,7 +383,7 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
   db_data.dptr = PALLOC(r->pool, 12);
   if (!db_data.dptr) {
     ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-    dbm_close(*iprot_db);
+    close_db(iprot_db, r);
     return FALSE;
   }
   sprintf(db_data.dptr, "%li", r->request_time);
@@ -375,7 +391,7 @@ static int update_iprot_db(request_rec *r, DBM **iprot_db)
 
   if (dbm_store(*iprot_db, db_key, db_data, DBM_REPLACE)) {
     ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-    dbm_close(*iprot_db);
+    close_db(iprot_db, r);
     return FALSE;
   }
 
@@ -440,7 +456,7 @@ int check_block_ignore(const char *BlockIgnoreStr, DBM *iprot_db,
 
     delete_block_ignore(r, block_ignore_db, iprot_db,
 			server_hostname, target, BLOCK_DELETE);
-    dbm_close(block_ignore_db);
+    close_db(&block_ignore_db, r);
     return 0;
   }
 

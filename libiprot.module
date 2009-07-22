@@ -1,0 +1,4 @@
+Name: iprot_module
+ConfigStart
+    . ./helpers/find-dbm-lib
+ConfigEnd

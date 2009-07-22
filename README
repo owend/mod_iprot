@@ -3,7 +3,7 @@ Copyright 1998-2003 Digital Concepts
 http://www.digital-concepts.net
 All rights reserved.
 
-VERSION 1.9.0beta9
+VERSION 1.9.0beta15
 
 INTRODUCTION
 ------------
@@ -264,6 +264,9 @@ install directory):
 # chmod u=rwx,go-rwx iprot/
 (where <User> and <Group> are the user/group apache runs as ... usually
 nobody:nogroup
+
+If this directory is missing or not readable and writeable by
+iProtect, iProtect may fail without an error message.
 
 
 =IProtCompareN

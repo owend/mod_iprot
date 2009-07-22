@@ -338,7 +338,7 @@ int iprot_db_display(request_rec *r, const int user_details)
 			      &fn_list, r)) {
 	  ap_rputs("<p align=center><font size=+1>"
 		   "Error out of memory.</font></p>\n", r);
-	  dbm_close(db);
+	  close_db(&db, r);
 	  return OK;
 	}
 
@@ -368,7 +368,7 @@ int iprot_db_display(request_rec *r, const int user_details)
 	    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 	    ap_rprintf(r, "</table><br>\n<p align=center><font size=+1>%s"
 		       "</font></p></body></html>\n", err_str);
-	    dbm_close(db);
+	    close_db(&db, r);
 	    return OK;
 	  }
 
@@ -386,7 +386,7 @@ int iprot_db_display(request_rec *r, const int user_details)
 		ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 		ap_rprintf(r, "</table><br>\n<p align=center><font size=+1>"
 			   "%s</font></p></body>\n</html>\n", err_str);
-		dbm_close(db);
+		close_db(&db, r);
 		return OK;
 	      }
 
@@ -418,7 +418,7 @@ int iprot_db_display(request_rec *r, const int user_details)
 		ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 		ap_rprintf(r, "</table><br>\n<p align=center><font size=+1>"
 			   "%s</font></p>\n</body>\n</html>\n", err_str);
-		dbm_close(db);
+		close_db(&db, r);
 		return OK;
 	      }
 
@@ -493,7 +493,7 @@ int iprot_db_display(request_rec *r, const int user_details)
 	} /* while */
 
 	ap_rputs("<tr><td colspan=3>&nbsp;</td></tr>\n", r);
-	dbm_close(db);
+	close_db(&db, r);
       } /* if (good db name) */
     } /* if not done already */
 
@@ -641,10 +641,10 @@ static int view_block(request_rec *r, server_rec *s,
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
   if (IPStr[0] == 'B') {
-    exp = (time_t) atol(strchr(IPStr, ':'));
+    exp = (time_t) atol(strchr(IPStr, ':') + 1);
   } else {
     if (IPStr[0] == 'I') {
-      exp = (time_t) atol(strchr(IPStr, ':'));
+      exp = (time_t) atol(strchr(IPStr, ':') + 1);
     } else {
       iprot_block = TRUE;
 
@@ -716,10 +716,8 @@ static int view_block(request_rec *r, server_rec *s,
       }
  
       ap_rprintf(r, "<td align=center><a href=\"iprot-admin?"
-		 "p=block-detail&t=%s&h=%s&d=%s&f=%s\">****</a></td></tr>\n",
-		 target, hostname,
-		 prot_conf_rec->filename,
-		 prot_conf_rec->block_ignore_filename);
+		 "p=block-detail&t=%s&h=%s\">****</a></td></tr>\n",
+		 target, hostname);
     } else { /* print block details */
       ap_rputs("<table border=" TABLE_BORDER " align=center>\n", r);
       if (iprot_block) {
@@ -1000,7 +998,7 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
     ap_rprintf(r, "<p align=center><font size=+1>"
 	       "No record for %s at %s found.</font></p>\n"
 	       "</body>\n</html>\n", target, hostname);
-    dbm_close(db);
+    close_db(&db, r);
     return OK;
   }
 
@@ -1013,7 +1011,7 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
       ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
       ap_rprintf(r, "<p align=center><font size=+1>%s</font></p>"
 		 "</body></html>\n", err_str);
-      dbm_close(db);
+      close_db(&db, r);
       return OK;
     }
 
@@ -1022,7 +1020,10 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
 			  threshold, target, hostname,
 			  "password hacking", FALSE, NULL);
       if (result == -1)
+      {
+	close_db(&db, r);
 	return OK; /* error in view_block */
+      }
 
       if (block_printed == FALSE)
 	block_printed = result;
@@ -1030,12 +1031,12 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
 
     if (strcmp(BlockIgnoreStr, "") && (BlockIgnoreStr[0] == 'B')) {
       /* don't show ignores */
-      if ((result = view_block(r, s, BlockIgnoreStr,
-			       threshold, target, hostname,
-			       "user block ignore", FALSE, NULL) == -1)) {
-	dbm_close(db);
-	return OK; /* error in view_block */
-      }
+        if ((result = view_block(r, s, BlockIgnoreStr,
+			    threshold, target, hostname,
+			    "user block ignore", FALSE, NULL)) == -1) {
+	  close_db(&db, r);
+	  return OK; /* error in view_block */
+        }
 
       if (block_printed == FALSE)
 	block_printed = result;
@@ -1048,7 +1049,7 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
       ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
       ap_rprintf(r, "</table><br><p align=center><font size=+1>"
 		 "%s</font></p></body></html>\n", err_str);
-      dbm_close(db);
+      close_db(&db, r);
       return OK;
     }
 
@@ -1059,7 +1060,10 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
 			    target, hostname,
 			    "password sharing", FALSE, NULL);
 	if (result == -1)
+        {
+          close_db(&db, r);
 	  return OK; /* error in view_block */
+        }
 
 	if (block_printed == FALSE)
 	  block_printed = result;
@@ -1070,8 +1074,8 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
 				 failedIPStr, failed_threshold,
 				 target, hostname,
 				 "failed login attempts",
-				 FALSE, NULL) == -1)) {
-	  dbm_close(db);
+				 FALSE, NULL)) == -1) {
+	  close_db(&db, r);
 	  return OK; /* error in view_block */
 	}
 	
@@ -1082,8 +1086,8 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
       if (strcmp(BlockIgnoreStr, "") && (BlockIgnoreStr[0] == 'B')) {
 	if ((result = view_block(r, s, BlockIgnoreStr,
 			    threshold, target, hostname,
-				 "user block ignore", FALSE, NULL) == -1)) {
-	  dbm_close(db);
+				 "user block ignore", FALSE, NULL)) == -1) {
+	  close_db(&db, r);
 	  return OK; /* error in view_block */
 	}
 
@@ -1095,8 +1099,8 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
 	if ((result = view_block(r, s, BWStr,
 				 atoi(prot_conf_rec->max_bytes_user),
 				 target, hostname,
-				 "bandwidth block", FALSE, NULL) == -1)) {
-	  dbm_close(db);
+				 "bandwidth block", FALSE, NULL)) == -1) {
+	  close_db(&db, r);
 	  return OK; /* error in view_block */
 	}
 
@@ -1112,6 +1116,7 @@ static int iprot_block_detail(request_rec *r) /* p=block-detail */
   }
 
   ap_rputs("</body></html>\n", r);
+  close_db(&db, r);
   return OK;
 } /* iprot_block_detail */
 
@@ -1160,7 +1165,7 @@ static int view_blocks_form(request_rec *r)
 			      &fn_list, r)) {
 	  ap_rputs("<p align=center><font size=+1>"
 		   "Error out of memory.</font></p>\n", r);
-	  dbm_close(db);
+	  close_db(&db, r);
 	  return OK;
 	}
 
@@ -1183,7 +1188,7 @@ static int view_blocks_form(request_rec *r)
 	    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 	    ap_rprintf(r, "<p align=center><font size=+1>%s</font></p>"
 		       "</body></html>\n", err_str);
-	    dbm_close(db);
+	    close_db(&db, r);
 	    return OK;
 	  }
 
@@ -1200,11 +1205,11 @@ static int view_blocks_form(request_rec *r)
 		  !get_data_strings(r, &db_data, &successfulIPStr,
 				    &BlockIgnoreStr, NULL, NULL))	{
 		char *err_str = strerror(errno);
-		dbm_close(db);
+		close_db(&db, r);
 		ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 		ap_rprintf(r, "<p align=center><font size=+1>%s</font></p>"
 			   "</body></html>\n", err_str);
-		dbm_close(db);
+		close_db(&db, r);
 		return OK;
 	      }
 
@@ -1215,7 +1220,7 @@ static int view_blocks_form(request_rec *r)
 						 remote_host, local_host,
 						 "password hacking",
 						 TRUE, &hdr_printed)) == -1) {
-		  dbm_close(db);
+		  close_db(&db, r);
 		  return OK; /* error in view_block() */
 		}
 	      }
@@ -1227,7 +1232,7 @@ static int view_blocks_form(request_rec *r)
 						 remote_host, local_host,
 						 "user block ignore",
 						 TRUE, &hdr_printed)) == -1) {
-		  dbm_close(db);
+		  close_db(&db, r);
 		  return OK; /* error in view_block() */
 		}
 	      }
@@ -1241,7 +1246,7 @@ static int view_blocks_form(request_rec *r)
 		  ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", err_str);
 		  ap_rprintf(r, "</table><br>\n<p align=center><font size=+1>"
 			     "%s</font></p>\n</body></html>\n", err_str);
-		  dbm_close(db);
+		  close_db(&db, r);
 		  return OK;
 		}
 
@@ -1254,7 +1259,7 @@ static int view_blocks_form(request_rec *r)
 						     "password sharing",
 						     TRUE, &hdr_printed)) ==
 			-1) {
-		      dbm_close(db);
+		      close_db(&db, r);
 		      return OK; /* error in view_block() */
 		    }
 		  } /* if (successfulIPStr) */
@@ -1267,7 +1272,7 @@ static int view_blocks_form(request_rec *r)
 						     "failed login attempts",
 						     TRUE, &hdr_printed)) ==
 			-1) {
-		      dbm_close(db);
+		      close_db(&db, r);
 		      return OK; /* error in view_block() */
 		    }
 		  } /* if (failedIPStr) */
@@ -1280,7 +1285,7 @@ static int view_blocks_form(request_rec *r)
 						     "user block ignore",
 						     TRUE, &hdr_printed)) ==
 			-1) {
-		      dbm_close(db);
+		      close_db(&db, r);
 		      return OK; /* error in view_block() */
 		    }
 		  }
@@ -1293,7 +1298,7 @@ static int view_blocks_form(request_rec *r)
 				    "bandwidth block",
 				    /* must match string in view_block() */
 				    TRUE, &hdr_printed)) == -1) {
-		      dbm_close(db);
+		      close_db(&db, r);
 		      return OK; /* error in view_block() */
 		    }
 		  }
@@ -1306,7 +1311,7 @@ static int view_blocks_form(request_rec *r)
 	  db_key = db_nextkey;
 	} /* while */
 
-	dbm_close(db);
+	close_db(&db, r);
       } /* if (good db name) */
     } /* if not done already */
 
@@ -1340,18 +1345,18 @@ static int open_iprot_dbs(request_rec *r, const char *hostname,
 	       "Error opening database %s: %s</font></p>\n",
 	       b_i_db_file, strerror(errno));
     if (*block_ignore_db)
-      dbm_close(*block_ignore_db);
+      close_db(block_ignore_db, r);
     return FALSE;
   }
 
   if (!(*iprot_db = open_db(db_file,
 			   IPROT_DB_FLAGS, 0664, r))) {
-    dbm_close(*block_ignore_db);
+    close_db(block_ignore_db, r);
     ap_rprintf(r, "<p align=center><font size=+1>"
 	       "Error opening database %s: %s</font></p>\n",
 	       db_file, strerror(errno));
     if (*block_ignore_db)
-      dbm_close(*block_ignore_db);
+      close_db(block_ignore_db, r);
     if(*iprot_db)
       dbm_close(*iprot_db);
     return FALSE;
@@ -1360,12 +1365,14 @@ static int open_iprot_dbs(request_rec *r, const char *hostname,
   return TRUE;
 } /* open_iprot_dbs */
 
-static void close_iprot_dbs(DBM **block_ignore_db, DBM **iprot_db)
+static void close_iprot_dbs(request_rec *r, 
+			    DBM **block_ignore_db,
+			    DBM **iprot_db)
 {
   if (*block_ignore_db)
-    dbm_close(*block_ignore_db);
+    close_db(block_ignore_db, r);
   if (*iprot_db)
-    dbm_close(*iprot_db);
+    close_db(iprot_db, r);
 } /* close_iprot_dbs */
 
 static int delete_block_ignore_callback(void *data,
@@ -1410,7 +1417,7 @@ static int delete_block_ignore_callback(void *data,
 			    hostname, target, cbd->del_type);
 	/* ignore any error and continue */
 
-	close_iprot_dbs(&block_ignore_db, &iprot_db);
+	close_iprot_dbs(cbd->r, &block_ignore_db, &iprot_db);
       }
     }
   }
@@ -1538,8 +1545,8 @@ static int iprot_view_edit_blocks(request_rec *r) /* p=view-edit */
 	else
 	  delete_block_ignore(r, NULL, iprot_db,
 			      hostname, target, BLOCK_DELETE);
-
-	dbm_close(iprot_db);
+        if (iprot_db)
+	  dbm_close(iprot_db);
 	if (block_ignore_db)
 	  dbm_close(block_ignore_db);
 
@@ -1572,12 +1579,11 @@ static int iprot_view_edit_blocks(request_rec *r) /* p=view-edit */
 		       "</body></html>\n",
 		       strerror(errno));
 	    return OK;
+	    if (iprot_db)
+	      dbm_close(iprot_db);
+	    if (block_ignore_db)
+	      dbm_close(block_ignore_db);
 	  }
-
-	  if (iprot_db)
-	    dbm_close(iprot_db);
-	  if (block_ignore_db)
-	    dbm_close(block_ignore_db);
 	} else {
 	  ap_rputs("<p align=center><font size=+1>"
 		   "Error: undefined action in "
@@ -1653,7 +1659,7 @@ static void server_configuration(request_rec *r)
   int failed_compareN;
   long failed_timeout;
   unsigned int max_bytes_user;
-
+  prot_config_rec *rec = NULL;
   int all_hosts = -1;
 
 #if 0
@@ -1667,12 +1673,15 @@ static void server_configuration(request_rec *r)
 #endif
 
   while (s) {
-    const prot_config_rec *prot_conf_rec =
+    prot_config_rec *prot_conf_rec =
       (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
     const char *server_hostname = s->server_hostname;
 
+    if (!rec)
+      rec = prot_conf_rec;
     if (all_hosts == -1) /* set this on the first server record */
       all_hosts = prot_conf_rec->all_hosts_admin;
+
     threshold = atoi(prot_conf_rec->threshold);
     compareN = atoi(prot_conf_rec->compareN);
     auth_timeout = atol(prot_conf_rec->auth_timeout);
@@ -1706,6 +1715,8 @@ static void server_configuration(request_rec *r)
 	       failed_timeout, Print_Plural(failed_timeout));
     ap_rprintf(r, "<tr><td>IProtFailedCompareN</td><td align=right>%i</td>"
 	       "</tr>\n", failed_compareN);
+    ap_rprintf(r, "<tr><td>IProtNotifyUser</td><td align=right>%s</td>"
+	       "</tr>\n", On_Off(prot_conf_rec->notifyuser));
     ap_rprintf(r, "<tr><td>IProtNotifyLogin</td><td align=right>%s</td>"
 	       "</tr>\n", On_Off(prot_conf_rec->notifylogin));
     ap_rprintf(r, "<tr><td>IProtAbuseStatusReturn</td><td align=right>%i</td>"
@@ -1728,6 +1739,8 @@ static void server_configuration(request_rec *r)
 	       "</tr>\n", On_Off(prot_conf_rec->notifyip));
     ap_rprintf(r, "<tr><td>IProtMaxBytesUser</td><td align=right>%iMB/day</td>"
 	       "</tr>\n", max_bytes_user);
+    ap_rprintf(r, "<tr><td>IProtBWTimeout</td><td align=right>%i hours</td>"
+	       "</tr>\n", prot_conf_rec->bw_timeout);
     ap_rprintf(r, "<tr><td>IProtBWStatusReturn</td><td align=right>%i</td>"
 	       "</tr>\n", prot_conf_rec->bw_status_return);
     ap_rprintf(r, "<tr><td>IProtBWRedirectURL</td><td>%s</td>"
@@ -1898,7 +1911,7 @@ static int process_block_ignore_form(request_rec *r, table *post_params_table)
 	      add_block_ignore(r, block_ignore_db, iprot_db,
 			       target, s->server_hostname,
 			       block_ignore, atoi(days), atoi(hours));
-	      close_iprot_dbs(&block_ignore_db, &iprot_db);
+	      close_iprot_dbs(r, &block_ignore_db, &iprot_db);
 	      s = s->next;
 	    }
 	  } else {
@@ -1908,7 +1921,7 @@ static int process_block_ignore_form(request_rec *r, table *post_params_table)
 	    add_block_ignore(r, block_ignore_db, iprot_db,
 			     target, server,
 			     block_ignore, atoi(days), atoi(hours));
-	    close_iprot_dbs(&block_ignore_db, &iprot_db);
+	    close_iprot_dbs(r, &block_ignore_db, &iprot_db);
 	  }
 	} else {
 	  if (!open_iprot_dbs(r, server_hostname,
@@ -1917,7 +1930,7 @@ static int process_block_ignore_form(request_rec *r, table *post_params_table)
 	  add_block_ignore(r, block_ignore_db, iprot_db,
 			   target, server_hostname,
 			   block_ignore, atoi(days), atoi(hours));
-	  close_iprot_dbs(&block_ignore_db, &iprot_db);
+	  close_iprot_dbs(r, &block_ignore_db, &iprot_db);
 	}
       } /* if */
     } /* for */
@@ -1980,7 +1993,7 @@ static int block_ignore_form(request_rec *r)
 	if (!new_str_from_datum(&db_key, &key, r) ||
 	    !new_str_from_datum(&db_data, &data, r))  /* out of memory */
 	  return FALSE;
-
+	  
 	get_items(key, &target, &local_host);
 	if (!target || !local_host) {
 	  ap_log_rerror(APLOG_MARK, APLOG_CRIT, r,

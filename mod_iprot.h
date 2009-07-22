@@ -6,7 +6,7 @@
  * http://www.digital-concepts.net
  */
 
-#define IPROT_VERSION "1.9.0-beta12"
+#define IPROT_VERSION "1.9.0-beta14"
 #define SUPPORT_MAIL_URL "mailto:iprotect@digital-concepts.net"
 #define COPYRIGHT_NOTICE "Copyright 1999-2003, Digital Concepts"
 
@@ -24,7 +24,10 @@
 #include <ndbm.h>
 
 
-#define MBYTE 1024000  /* bytes in a megabyte */
+/* bytes in a megabyte */
+#define MBYTE 1024000
+/* seconds in an hour */
+#define SEC_PER_HOUR 60 * 60
 
 #ifndef TRUE
 #  define TRUE 1
@@ -109,6 +112,7 @@ typedef struct {
   int bw_status_return;
   char *max_bytes_user;
   char *bw_redirect_url;
+  int bw_timeout;
   table *ignore_ips;
   table *ignore_users;
   regex_t *ipaddress_preg;
@@ -117,7 +121,7 @@ typedef struct {
 /* iprot_admin.c */
 #define N_NEW_BLOCKS 4
 	/* N_NEW_BLOCKS must be less that 100 */
-#define TARGET_NAME_LENGTH "24"
+#define TARGET_NAME_LENGTH "32"
 
 int iprot_admin(request_rec *r);
 
@@ -126,6 +130,8 @@ int new_str_from_datum(const datum *d, char **str, request_rec *r);
 
 DBM *open_db(const char *filename, const int flags,
 	     const int mode, request_rec *r);
+
+void close_db(DBM **db, request_rec *r);
 
 int get_record(DBM *db, datum *d,
 	       const char *host, const char *key,

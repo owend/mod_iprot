@@ -10,7 +10,6 @@
 #include "http_request.h"
 #include <errno.h>
 
-
 /* Log a fatal error and abort during server initialization. */
 static void server_init_abort(server_rec *s)
 {
@@ -87,6 +86,7 @@ static void *create_prot_config(pool *p, server_rec *s)
 				 * status by default */
   if (!(rec->max_bytes_user = (char *) PSTRDUP(p, IPROT_MAX_BYTES_USER)))
     server_init_abort(s);	/* default is disabled */
+  rec->bw_timeout = 0;
 
   rec->bw_redirect_url = NULL;
 
@@ -194,6 +194,8 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
   new->bw_redirect_url =
     new->bw_redirect_url != NULL ?
     new->bw_redirect_url : base->bw_redirect_url;
+
+  new->bw_timeout = (new->bw_timeout) ? new->bw_timeout : base->bw_timeout;
 
   new->block_ignore_filename =
     strcmp(new->block_ignore_filename, IPROT_BLOCKIGNORE_DB_FILE) ?
@@ -502,7 +504,7 @@ static int check_failed_auth_attempts(request_rec *r,
       !(get_data_strings(r, &d,
 			 &successfulIPStr, &failedIPStr,
 			 &BlockIgnoreStr, &BWStr))) {
-    dbm_close(db); 
+    close_db(&db, r); 
     return -1; /* I/O Error */
   }
 
@@ -513,7 +515,7 @@ static int check_failed_auth_attempts(request_rec *r,
     if ((block_status = check_block_ignore(BlockIgnoreStr, db,
 					   server_name, c->user,
 					   config_rec, r))) {
-      dbm_close(db); 
+      close_db(&db, r); 
       return block_status; /* blocked, ignored or error */
     }
   }
@@ -530,7 +532,7 @@ static int check_failed_auth_attempts(request_rec *r,
 			    failedIPStr, &newFootprint,
 			    interval, compareN, failed_threshold, 0,
 			    config_rec)) == -1)	{
-      dbm_close(db); 
+      close_db(&db, r); 
       return -1; /* error in count_hits() */
     }
 
@@ -543,7 +545,7 @@ static int check_failed_auth_attempts(request_rec *r,
 					  BlockIgnoreStr,
 					  BWStr))) {
 	/* out of memory */
-	dbm_close(db); 
+	close_db(&db, r); 
 	return -1;
       }
 
@@ -557,7 +559,7 @@ static int check_failed_auth_attempts(request_rec *r,
       if (!(cmp_ip = (char *) PALLOC(r->pool, strlen(remote_ip) + 1))) {
 	/* out of memory */
 	ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-	dbm_close(db); 
+	close_db(&db, r); 
 	return -1;
       }
       strcpy(cmp_ip, "");
@@ -570,7 +572,7 @@ static int check_failed_auth_attempts(request_rec *r,
 	if (!tmp_ip) {
 	  /* out of memory */
 	  ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-	  dbm_close(db); 
+	  close_db(&db, r); 
 	  return -1;
 	}
 	strcpy(tmp_ip, remote_ip);
@@ -611,7 +613,7 @@ static int check_failed_auth_attempts(request_rec *r,
     status = 0; /* no record of this ip */
   }
 
-  dbm_close(db);
+  close_db(&db, r);
   return status;
 } /* check_failed_auth_attempts */ 
 
@@ -647,14 +649,15 @@ static int check_bandwidth(request_rec *r)
       !(get_data_strings(r, &d,
 			 &successfulIPStr, &failedIPStr,
 			 &BlockIgnoreStr, &BWStr))) {
-    dbm_close(db); 
+    close_db(&db, r); 
     return -1; /* I/O Error or out of memory*/
   }
 
   if (strcmp(BWStr, "")) {
     if (sscanf(BWStr, "%i%c%i", &total_bytes_sent,
 	       &flag_char, (int *)&timestamp) == 3) {
-      if (diff_day(timestamp, r->request_time)) {
+      if (config_rec->bw_timeout &&  /* periodic block? */
+	  diff_day(timestamp, r->request_time)) {  /* new calendar day? */
 	char *dataStr = NULL;
 	/* store user's record with zeroed bw data, record_bytes_sent
 	   will create a new record with a new date */
@@ -667,7 +670,20 @@ static int check_bandwidth(request_rec *r)
 	max_bytes_user = atoi(config_rec->max_bytes_user);
 
 	if (total_bytes_sent > (max_bytes_user * MBYTE)) {
-	  /* user has exceeded maximum daily transfer, block */
+	  /* user has exceeded maximum transfer */
+
+	  if (config_rec->bw_timeout &&  /* periodic block? */
+	      ((timestamp + (config_rec->bw_timeout * SEC_PER_HOUR)) <
+	       r->request_time)) {
+	    /* block has expired, remove */
+	    char *dataStr = NULL;
+	    if ((dataStr =
+		 combine_data_strings(r, successfulIPStr, failedIPStr,
+				      BlockIgnoreStr, ""))) {
+	      store_record(db, server_hostname, c->user, dataStr, r);
+	    }
+	    return 0;
+	  }
 
 	  rtn = 1;
 	  /* send email ? */
@@ -681,11 +697,22 @@ static int check_bandwidth(request_rec *r)
 	    char *remote_ip = lookup_header(r, "HTTP_X_FORWARDED_FOR");
 	    if (remote_ip == NULL) remote_ip = c->remote_ip;
 
-	    send_mail(r, remote_ip, c->user, 
-		      admin_email, server_hostname,
-		      "iProtect BandWidth notification",
-		      "Daily BandWidth exceeded for user",
-		      "1", "day");
+	    if (config_rec->bw_timeout) {
+	      char buf[8];
+
+	      snprintf(buf, 8, "%i", config_rec->bw_timeout);
+	      send_mail(r, remote_ip, c->user, 
+			admin_email, server_hostname,
+			"iProtect BandWidth notification",
+			"Daily BandWidth exceeded for user",
+			buf, "hours");
+	    } else {
+	      send_mail(r, remote_ip, c->user, 
+			admin_email, server_hostname,
+			"iProtect BandWidth notification",
+			"Daily BandWidth exceeded for user",
+			"1", "day");
+	    }
 
 	    if (flag_char == S_CHAR) {
 #	      undef BUFFER_LEN
@@ -713,7 +740,7 @@ static int check_bandwidth(request_rec *r)
     }
   }
 
-  dbm_close(db);
+  close_db(&db, r);
 
   return rtn;
 } /* check_bandwidth */
@@ -849,7 +876,7 @@ static int record_auth_attempt(request_rec *r)
   LOG_PRINTF(s, "mod_iprot: getting record for IP %s", remote_ip);
   if (!get_record(db, &d, server_hostname, remote_ip, r) ||
       !get_data_strings(r, &d, &PWStr, &BlockIgnoreStr, NULL, NULL)) {
-    dbm_close(db); 
+    close_db(&db, r); 
     return DECLINED;
   }
 
@@ -859,12 +886,12 @@ static int record_auth_attempt(request_rec *r)
 			       server_hostname, remote_ip,
 			       rec, r)) {
     case -1:	/* error or ip ignored */
-      dbm_close(db); 
+      close_db(&db, r); 
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking detected or blocked */
-      dbm_close(db);
+      close_db(&db, r);
       switch (rec->hack_status_return) {
       case 0:
 	return DONE;
@@ -895,7 +922,7 @@ static int record_auth_attempt(request_rec *r)
     if ((num_hits = count_hits(r, remote_ip, (char *) sent_pw,
 			       PWStr, &newFootprint,
 			       interval, compareN, threshold, 1, rec)) == -1) {
-      dbm_close(db); 
+      close_db(&db, r); 
       return -1; /* error in count_hits() */
     }
 
@@ -905,7 +932,7 @@ static int record_auth_attempt(request_rec *r)
       store_record(db, server_hostname, remote_ip /*key*/, dataStr, r);
     }
 
-    dbm_close(db);
+    close_db(&db, r);
 
     if (num_hits >= threshold) {
       if (nag) {
@@ -949,7 +976,7 @@ static int record_auth_attempt(request_rec *r)
     if ((dataStr =
 	 combine_data_strings(r, buffer, BlockIgnoreStr, NULL, NULL)))
       store_record(db, server_hostname, remote_ip, dataStr, r);
-    dbm_close(db); 
+    close_db(&db, r); 
   }
   
   return DECLINED;
@@ -1017,7 +1044,7 @@ static int record_access_attempt(request_rec *r)
       !get_data_strings(r, &d, &IPStr, &failedIPStr, &BlockIgnoreStr, &BWStr) ||
       (strcmp(IPStr, "") && !(successfulIPStr =
 		  PSTRDUP(r->pool, IPStr)))) { /* count_hits() changes IPStr */
-    dbm_close(db); 
+    close_db(&db, r); 
     return OK;
   }
 
@@ -1026,12 +1053,12 @@ static int record_access_attempt(request_rec *r)
     switch (check_block_ignore(BlockIgnoreStr, db, server_hostname,
 			       c->user, rec, r)) {
     case -1:	/* error or user ignored */
-      dbm_close(db); 
+      close_db(&db, r); 
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking detected or blocked */
-      dbm_close(db); 
+      close_db(&db, r); 
       switch (rec->hack_status_return) {
       case 0:
 	return DONE;
@@ -1063,7 +1090,7 @@ static int record_access_attempt(request_rec *r)
 
     if ((num_hits = count_hits(r, c->user, remote_ip, IPStr, &newFootprint,
 			       interval, compareN, threshold, 1, rec)) == -1) {
-      dbm_close(db);
+      close_db(&db, r);
       return -1; /* error in count_hits() */
     }
 
@@ -1097,7 +1124,7 @@ static int record_access_attempt(request_rec *r)
 	call_external(r, c->user, rec->external_proguser);
       }
 
-      dbm_close(db);
+      close_db(&db, r);
 
       switch (rec->abuse_status_return) {
       case 0:
@@ -1145,7 +1172,7 @@ static int record_access_attempt(request_rec *r)
       store_record(db, server_hostname, c->user, IPdata, r);
   }
 
-  dbm_close(db);
+  close_db(&db, r);
   return OK; 
 } /* record_access_attempt */
 
@@ -1181,7 +1208,7 @@ static void record_failed_auth_attempt(request_rec *r,
   if (!get_record(db, &d, server_hostname, c->user, r) ||
       !get_data_strings(r, &d, &successfulIPStr,
 			&failedIPStr, &BlockIgnoreStr, &BWStr)) {
-    dbm_close(db);
+    close_db(&db, r);
     return;
   }
 
@@ -1200,7 +1227,7 @@ static void record_failed_auth_attempt(request_rec *r,
 			       &newFootprint, failed_interval,
 			       failed_compareN, failed_threshold, 1,
 			       config_rec)) == -1) {
-      dbm_close(db); 
+      close_db(&db, r); 
       return; /* error in count_hits() */
     }
 
@@ -1258,7 +1285,7 @@ static void record_failed_auth_attempt(request_rec *r,
       store_record(db, ap_get_server_name(r), c->user, IPdata, r);
   }
 
-  dbm_close(db);
+  close_db(&db, r);
 } /* record_failed_auth_attempt */
 
 static int record_bytes_sent(request_rec *r)
@@ -1293,6 +1320,10 @@ static int record_bytes_sent(request_rec *r)
   if (match_string(r, config_rec->ignore_users, c->user))
     return TRUE;
 
+  /* lots of requests don't have this, so don't even open the db */ 
+  if (r->bytes_sent == 0)
+    return TRUE;
+
   /* open database */
   if (!(db = open_iprot_db(config_rec->filename, IPROT_DB_FLAGS, 0664, r)))
     return -1; /* I/O Error */
@@ -1302,13 +1333,13 @@ static int record_bytes_sent(request_rec *r)
       !(get_data_strings(r, &d,
 			 &successfulIPStr, &failedIPStr,
 			 &BlockIgnoreStr, &BWStr))) {
-    dbm_close(db); 
+    close_db(&db, r); 
     return FALSE; /* I/O Error */
   }
 
   if (strcmp(BlockIgnoreStr, "") &&
       (BlockIgnoreStr[0] == 'B' || BlockIgnoreStr[0] == 'I')) {
-    dbm_close(db); 
+    close_db(&db, r); 
     return TRUE;
   }
 
@@ -1318,8 +1349,11 @@ static int record_bytes_sent(request_rec *r)
     if (sscanf(BWStr, "%i%c%i", &total_bytes_sent,
 	       &flag_char, (int *)&timestamp) == 3) {
       total_bytes_sent += + r->bytes_sent;
+      if (config_rec->bw_timeout)
+	timestamp = r->request_time; /* update timestamp if not using
+					daily bw limit */
     } else { 
-      dbm_close(db); 
+      close_db(&db, r); 
       return FALSE;
     }
   } else {
@@ -1341,7 +1375,7 @@ static int record_bytes_sent(request_rec *r)
     store_record(db, server_hostname, c->user, dataStr, r);
   }
 
-  dbm_close(db);
+  close_db(&db, r);
 
   return TRUE;
 } /* record_bytes_sent */
@@ -1606,6 +1640,17 @@ static const char *set_bw_status_return(cmd_parms *cmd,
   return NULL;
 }
 
+static const char *set_bw_timeout(cmd_parms *cmd,
+				  void *dummy,
+				  const char *val)
+{
+  prot_config_rec *config_rec =
+    (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
+					  &iprot_module);
+  config_rec->bw_timeout = atoi(val);
+  return NULL;
+}
+
 static const char *set_no_HEAD_req(cmd_parms *cmd, void *dummy, int val)
 {
   prot_config_rec *config_rec =
@@ -1643,6 +1688,10 @@ static const command_rec prot_cmds[] = {
    "Number of hours to keep records of failed logins."},
   {"IProtFailedCompareN", set_var, &set_failed_compare, RSRC_CONF, TAKE1,
    "Number of octets in IP addresses to compare on failed logins."},
+  {"IProtNotifyUser", set_notifyuser, NULL, RSRC_CONF, FLAG,
+   "If On, send email when a user trips the shared user/password abuse"
+   " detector, otherwise just block the user."
+   "Default is On, enabled."},
   {"IProtNotifyLogin", set_notifylogin, NULL, RSRC_CONF, FLAG,
    "If On, send email when a user trips the failed login detector,"
    " otherwise just block them. "
@@ -1685,6 +1734,9 @@ static const command_rec prot_cmds[] = {
    "if On, send email when a user trips the daily bandwidth block,"
    " otherwise just block them. "
    "Default is On, enabled."},
+  {"IProtBWTimeout", set_bw_timeout, NULL, RSRC_CONF, TAKE1,
+   "Timeout for bandwidth blocks. If 0 blocks last until the end of the"
+   " calendar day in which they were placed."},
   {"IProtEnable", set_enabled, NULL, RSRC_CONF, FLAG,
    "Off to disable checking for this virtual host. "
    "Default is On, enabled."},

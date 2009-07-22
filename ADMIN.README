@@ -4,7 +4,7 @@ Covered under one or more copyrights and patents
 http://www.digital-concepts.net
 All rights reserved.
 
-VERSION 1.9.0beta10
+VERSION 1.9.0beta15
 
 iProtect Web Admin Interface
 ----------------------------
@@ -262,7 +262,7 @@ server you host.
                               iProtect Admin Menu
  
     +----------------------------------------------------------------------+
-    |iProtect Version      |                                   1.9.0-beta10|
+    |iProtect Version      |                                          1.9.0|
     |----------------------+-----------------------------------------------|
     |Apache Release        |                                       10327100|
     |----------------------+-----------------------------------------------|
