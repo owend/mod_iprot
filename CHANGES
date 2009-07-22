@@ -1,13 +1,10 @@
-Version 1.9.15
-* Add Bandwidth metering
-
-Version 1.9.1 to Version 1.9.14
-* Bug fixes
-
 Version 1.9.0 02/25/03
+* Use of thread safe functions selected by defining THREAD_SAFE, beta 17
+* Added Makefile to the distribution because axps can't build Iprotect, beta 16
+* Converted from ndbm to berkeley db 3, beta 15
 * Defaults provided for all values, directives left out of httpd.conf
   can no longer cause the server to segfault.
-* IProtAbuseEmail and IProtHackEmail have been added for
+* IProtAbuseEmail, IProtHackEmail, and IProtBWEmail have been added for
   greater control of notification email.
 * Added support to eliminate proxy based hack attacks.
 * Addition of an admin interface for some of the iprot configs and to

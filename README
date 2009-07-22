@@ -3,7 +3,7 @@ Copyright 1998-2003 Digital Concepts
 http://www.digital-concepts.net
 All rights reserved.
 
-VERSION 1.9.15
+VERSION 1.9.0-beta17
 
 INTRODUCTION
 ------------
@@ -650,3 +650,11 @@ admin interface for all virtual domains with identical access
 restrictions. You will need to put a <Location ...> directive in each
 <VirtualHost ...> directive to have different access restrictions for
 each virtual host.
+
+
+========================================================================
+mail:/usr/local/apache.test/bin> ./apachectl start
+Syntax error on line 235 of /usr/local/apache.test/conf/httpd.conf:
+Cannot load /usr/local/apache.test/libexec/mod_iprot.so into server: /usr/local/apache.test/libexec/mod_iprot.so: undefined symbol: db_create
+./apachectl start: httpd could not be started
+m

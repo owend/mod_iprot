@@ -8,106 +8,278 @@
 
 #include "mod_iprot.h"
 #include "http_request.h"
-#include <errno.h>
+
 
 /* Log a fatal error and abort during server initialization. */
 static void server_init_abort(server_rec *s)
 {
-  ap_log_error(APLOG_MARK, APLOG_CRIT, s, strerror(errno));
+  ap_log_error(APLOG_MARK, APLOG_CRIT, s, "Aborting httpd!");
   exit(errno);
 }
 
-#if 0
-static void mod_init(server_rec *s, pool *p) {
-  prot_config_rec *rec =	/* get our module configuration record */
-    (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
-  if (!rec) server_init_abort(s);
+static void mod_init(server_rec *s, pool *p)
+{
+  server_rec *sp = s;
+  char *db_directory = NULL;
+  DB_ENV *db_envp;
 
-  if (rec->email != NULL) {
-    rec->abuse_email =
-      rec->abuse_email ? rec->abuse_email : rec->email;
-    rec->hack_email =
-      rec->hack_email ? rec->hack_email : rec->email;
-    rec->bw_email =
-      rec->bw_email ? rec->bw_email : rec->email;
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s, "========");
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "compiled: %s %s", __DATE__, __TIME__);
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "mod_init(1): pid %i, uid %i, gid %i, euid %i, egid %i",
+	       (int)getpid(), (int)getuid(), (int)getgid(),
+	       (int)geteuid(), (int)getegid());
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "mod_init(2): server uid %i, server gid %i",
+	       s->server_uid, s->server_gid);
+
+  /*kill(getpid(), SIGSTOP);*/
+
+  /* If server is running as root we have to switch uid and gid 
+   * while we check the database environment.
+   * <slePP> c-wheeler: just use seteuid/setegid
+   */
+
+  if (!getuid()) { /* running as root */
+    if (setegid(s->server_gid)) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, s, "mod_init(2a): switching gid");
+      goto abort;
+    }
+    if (seteuid(s->server_uid)) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, s, "mod_init(2b): switching uid");
+      goto abort;
+    }
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "mod_init(2c): pid %i, euid %i, egid %i",
+		 (int)getpid(), (int)geteuid(), (int)getegid());
   }
-}
-#endif
+
+  while (sp) {
+    prot_config_rec *conf_rec =	/* get our module configuration record */
+      (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
+    if (!conf_rec) server_init_abort(s);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "mod_init(3): server_name: %s, pid %i",
+		 sp->server_hostname, (int)getpid());
+
+    db_directory = (char *)PSTRDUP(p, conf_rec->block_ignore_filename);
+    if (!db_directory) server_init_abort(s);  /* ENOMEN */
+    db_directory = dirname(db_directory);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "mod_init(4): filename(): %s,"
+		 " block_ignore_filename: %s, "
+		 "db_directroy: %s",
+		 conf_rec->filename,
+		 conf_rec->block_ignore_filename,
+		 db_directory);
+
+    /* create database environment */
+    if ((db_envp =
+	 create_db_env(db_directory, DB_RECOVER, IPROT_DB_PERMS, s)) == NULL) {
+      goto abort;
+    }
+    /* open and close database environment to run recovery. */
+    close_db_env(&db_envp, s);	/* s is passed only for loggin */
+				/* using sp breaks things */
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s, "--------");
+    sp = sp->next;
+  } /* while */
+
+abort:
+  if (!getuid()) { /* running as root */
+    if (seteuid(0)) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, s, "mod_init(4a): switching uid");
+    }
+    if (setegid(0)) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, s, "mod_init(4b): switching gid");
+    }
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "mod_init(4c): pid %i, euid %i, egid %i",
+		 (int)getpid(), (int)geteuid(), (int)getegid());
+  }
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "mod_init(5): done: pid %i", (int)getpid());
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "========");
+} /* mod_init */
+
+void child_init(server_rec *s, pool *p)
+{
+  server_rec *sp = s;
+  char *db_directory = NULL;
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "child_init(1): pid %i, euid %i, egid %i",
+	       (int)getpid(), (int)geteuid(), (int)getegid());
+
+  while (sp) {
+    prot_config_rec *conf_rec =	/* get our module configuration record */
+      (prot_config_rec *) GET_MODULE_CONFIG(sp->module_config, &iprot_module);
+    if (!conf_rec) server_init_abort(s);  /* s is passed only for loggin */
+					  /* using sp breaks things */
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_init(2): server_name: %s, pid %i",
+		 sp->server_hostname, (int)getpid());
+
+    db_directory = (char *)PSTRDUP(p, conf_rec->block_ignore_filename);
+    if (!db_directory) server_init_abort(s);  /* ENOMEN */
+    db_directory = dirname(db_directory);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_init(3): filename(2): %s,"
+		 " block_ignore_filename: %s, "
+		 "db_directroy: %s",
+		 conf_rec->filename,
+		 conf_rec->block_ignore_filename,
+		 db_directory);
+ 
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_init(4): create_db_env: %s pid %i",
+		 db_directory, (int)getpid());
+
+    /* create database environment */
+    if ((conf_rec->db_envp =
+	 create_db_env(db_directory, 0, IPROT_DB_PERMS, s)) == NULL) {
+      return;
+    }
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_init(5): open_db: %s pid %i",
+		 conf_rec->filename, (int)getpid());
+
+    /* open block ignore database */
+    conf_rec->iprot_db =
+      open_db(conf_rec->db_envp, conf_rec->filename,
+	      DB_CREATE, IPROT_DB_PERMS, s);  /* s is passed only for loggin */
+						/* using sp breaks things */
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_init(6): open_db: %s pid %i",
+		 conf_rec->block_ignore_filename, (int)getpid());
+
+    /* open iprot database */
+    conf_rec->block_ignore_db =
+      open_db(conf_rec->db_envp, conf_rec->block_ignore_filename,
+	      DB_CREATE, IPROT_DB_PERMS, s);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s, "--------");
+    sp = sp->next;
+  } /* while */
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "child_init(7) done: pid %i", (int)getpid());
+
+} /* child_init */
+
+void child_exit(server_rec *s, pool *p)
+{
+  server_rec *sp = s;
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "child_exit(1): pid %i, euid %i, egid %i",
+	       (int)getpid(), (int)geteuid(), (int)getegid());
+
+  while (sp) {
+    prot_config_rec *conf_rec =	/* get our module configuration record */
+      (prot_config_rec *) GET_MODULE_CONFIG(sp->module_config, &iprot_module);
+    if (!conf_rec) server_init_abort(s);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+		 "child_exit(2): server_name: %s", sp->server_hostname);
+
+    close_db(&conf_rec->iprot_db, s);	/* s is passed only for loggin */
+					/* using sp breaks things */
+    close_db(&conf_rec->block_ignore_db, s);
+
+    close_db_env(&conf_rec->db_envp, s);
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s, "--------");
+    sp = sp->next;
+  } /* while */
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "child_exit(3): done: pid %i", (int)getpid());
+} /* child_exit */
 
 /* function to initialize server config structure */
 static void *create_prot_config(pool *p, server_rec *s)
 {
-  prot_config_rec *rec =
-    (prot_config_rec *) PALLOC (p, sizeof(prot_config_rec));
-  if (!rec) server_init_abort(s);
+  prot_config_rec *conf_rec =
+    (prot_config_rec *)PALLOC(p, sizeof(prot_config_rec));
+  if (!conf_rec) server_init_abort(s);
 
-  ap_log_error(APLOG_MARK, APLOG_INFO, s, "initializing mod_iprot");
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "create_prot_config(): pid %i", (int)getpid());
 
-  if (!(rec->threshold = (char *) PSTRDUP(p, IPROT_THRESHOLD))) /* num hits */
-    server_init_abort(s);
-  if (!(rec->auth_timeout = (char *) PSTRDUP(p, IPROT_AUTH_TIMEOUT)))
-    server_init_abort(s);	    /* timeout for authorizations */
-  if (!(rec->access_timeout = (char *) PSTRDUP(p, IPROT_ACCESS_TIMEOUT)))
-    server_init_abort(s);	    /* timeout for accesses */
-  if (!(rec->filename = (char *) PSTRDUP(p, IPROT_DB_FILE)))
-    server_init_abort(s);
-  /*
-  if (!(rec-> = (char *) PSTRDUP(p, )))
-    server_init_abort(s);
-  */
-  if (!(rec->compareN = (char *) PSTRDUP(p, IPROT_COMPARE_N)))
-    server_init_abort(s);
+  conf_rec->threshold = IPROT_THRESHOLD;       /* num hits */
+  conf_rec->auth_timeout = IPROT_AUTH_TIMEOUT; /* timeout for authorizations */
+  conf_rec->access_timeout = IPROT_ACCESS_TIMEOUT; /* timeout for accesses */
 
-  rec->external_progip = NULL;
-  rec->external_proguser = NULL;
+  conf_rec->compareN = IPROT_COMPARE_N;
 
-  rec->email = NULL;
-  rec->abuse_email = NULL;
-  rec->hack_email = NULL;
-  rec->bw_email = NULL;
+  conf_rec->external_progip = NULL;
+  conf_rec->external_proguser = NULL;
 
-  if (!(rec->failed_threshold = (char *) PSTRDUP(p, IPROT_FAILED_THRESHOLD)))
-    server_init_abort(s);	/* threshold number of ips for
-				 * failed login for one user */
-  if (!(rec->failed_timeout = (char *) PSTRDUP(p, IPROT_FAILED_TIMEOUT)))
-    server_init_abort(s);	 /* timeout for failed logins */
-  if (!(rec->failed_compareN = (char *) PSTRDUP(p, IPROT_FAILED_COMPARE_N)))
+  conf_rec->email = NULL;
+  conf_rec->abuse_email = NULL;
+  conf_rec->hack_email = NULL;
+  conf_rec->bw_email = NULL;
+
+  conf_rec->failed_threshold = IPROT_FAILED_THRESHOLD;
+					/* threshold number of ips for
+					 * failed login for one user */
+  conf_rec->failed_timeout = IPROT_FAILED_TIMEOUT;
+					/* timeout for failed logins */
+  conf_rec->failed_compareN = IPROT_FAILED_COMPARE_N;
+
+  if (!(conf_rec->filename = (char *) PSTRDUP(p, IPROT_DB_FILE)))
     server_init_abort(s);
-  if (!(rec->block_ignore_filename =
+  if (!(conf_rec->block_ignore_filename =
 	(char *) PSTRDUP(p, IPROT_BLOCKIGNORE_DB_FILE)))
     server_init_abort(s);
 
-  rec->abuse_status_return = 1; /* return HTTP STATUS Forbidden (403) */
-  rec->hack_status_return = 1;	/* status by default */
-  rec->abuse_redirect_url = NULL;
-  rec->hack_redirect_url = NULL;
+  conf_rec->abuse_status_return = IPROT_ABUSE_STATUS_RETURN;
+				/* return HTTP STATUS Forbidden (403) */
+  conf_rec->hack_status_return = IPROT_HACK_STATUS_RETURN;
+				/* status by default */
+  conf_rec->abuse_redirect_url = IPROT_ABUSE_REDIRECT_URL;
+  conf_rec->hack_redirect_url = IPROT_HACK_REDIRECT_URL;
 
-  rec->bw_status_return = 1;	/* return HTTP STATUS Forbidden (403) 
+  conf_rec->bw_status_return = IPROT_BW_STATUS_RETURN;
+				/* return HTTP STATUS Forbidden (403) 
 				 * status by default */
-  if (!(rec->max_bytes_user = (char *) PSTRDUP(p, IPROT_MAX_BYTES_USER)))
-    server_init_abort(s);	/* default is disabled */
-  rec->bw_timeout = 0;
+  conf_rec->max_bytes_user = IPROT_MAX_BYTES_USER;  /* default is disabled */
+  conf_rec->bw_timeout = IPROT_BW_TIMEOUT;
 
-  rec->bw_redirect_url = NULL;
+  conf_rec->bw_redirect_url = NULL;
 
-  rec->nag = 0;
-  rec->notifyip = 1;	  	/* send hack attempt mail by default */
-  rec->notifyuser = 1;	  	/* send abuse mail by default */
-  rec->notifylogin = 1;	  	/* send failed login mail by default */
-  rec->notifybw = 1;	  	/* send bw block mail by default */
+  conf_rec->nag = IPROT_NAG;  	/* sent email every time a user/ip
+				 * is blocked */
+  conf_rec->notifyip = IPROT_NOTIFY_IP;        /* send hack attempt
+						* mail by default */
+  conf_rec->notifyuser = IPROT_NOTIFY_USER;    /* send abuse mail by default */
+  conf_rec->notifylogin = IPROT_NOTIFY_LOGIN;  /* send failed login mail
+						* by default */
+  conf_rec->notifybw = IPROT_NOTIFY_BW;	  /* send bw block mail by default */
 
-  rec->enabled = 1;	  	/* enabled by default */
-  rec->no_HEAD_req = 0;	  	/* process HEAD requests by default */
-  rec->all_hosts_admin = 0;	/* show all hosts in admin off by default */
+  conf_rec->enabled = IPROT_ENABLED;	  /* enabled by default */
+  conf_rec->no_HEAD_req = IPROT_NO_HEAD_REQ;	/* process HEAD requests
+						 * by default */
+  conf_rec->all_hosts_admin = IPROT_ALL_HOSTS_ADMIN;  /* show all hosts in
+						       * admin off by default */
 
-  if (!(rec->ipaddress_preg =
-	ap_pregcomp(p, "[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+",
-		    REG_EXTENDED | REG_NOSUB)) ||
-      !(rec->ignore_ips = ap_make_table(p, 20)) ||
-	!(rec->ignore_users = ap_make_table(p, 20)))
+  if (!(conf_rec->ipaddress_preg =
+	ap_pregcomp(p, IPROT_IPADDRESS_PREG, REG_EXTENDED | REG_NOSUB)) ||
+      !(conf_rec->ignore_ips = ap_make_table(p, 20)) ||
+	!(conf_rec->ignore_users = ap_make_table(p, 20)))
     server_init_abort(s);
 
-  return (void *)rec;
+  return (void *)conf_rec;
 } /* create_prot_config */
 
 /* function to initialize virtual server config structure */
@@ -120,26 +292,19 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
   new = (prot_config_rec *)newv;
   
   new->threshold =
-    strcmp(new->threshold, IPROT_THRESHOLD) ?
+    new->threshold != IPROT_THRESHOLD ?
     new->threshold : base->threshold;
   new->auth_timeout =
-    new->auth_timeout != NULL ? new->auth_timeout : base->auth_timeout;
-  new->auth_timeout =
-    strcmp(new->auth_timeout, IPROT_AUTH_TIMEOUT) ?
+    new->auth_timeout != IPROT_AUTH_TIMEOUT ?
     new->auth_timeout : base->auth_timeout;
   new->access_timeout =
-    strcmp(new->access_timeout, IPROT_ACCESS_TIMEOUT) ?
+    new->access_timeout != IPROT_ACCESS_TIMEOUT ?
     new->access_timeout : base->access_timeout;
   new->filename =
     strcmp(new->filename, IPROT_DB_FILE) ?
     new->filename : base->filename;
-    /*
-  new-> =
-    strcmp(new->, ) ?
-    new-> : base->;
-    */
   new->compareN =
-    strcmp(new->compareN, IPROT_COMPARE_N) ?
+    new->compareN != IPROT_COMPARE_N ?
     new->compareN : base->compareN;
 
   new->email =
@@ -166,13 +331,13 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
     new->external_proguser != NULL ? new->external_proguser :
 				     base->external_proguser;
   new->failed_threshold =
-    strcmp(new->failed_threshold, IPROT_FAILED_THRESHOLD) ?
+    new->failed_threshold != IPROT_FAILED_THRESHOLD ?
     new->failed_threshold : base->failed_threshold;
   new->failed_timeout =
-    strcmp(new->failed_timeout, IPROT_FAILED_TIMEOUT) ?
+    new->failed_timeout != IPROT_FAILED_TIMEOUT ?
     new->failed_timeout : base->failed_timeout;
   new->failed_compareN =
-    strcmp(new->failed_compareN, IPROT_FAILED_COMPARE_N) ?
+    new->failed_compareN != IPROT_FAILED_COMPARE_N ?
     new->failed_compareN : base->failed_compareN;
 
   new->abuse_status_return = new->abuse_status_return;
@@ -188,7 +353,7 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
   new->bw_status_return = new->bw_status_return;
 
   new->max_bytes_user =
-    strcmp(new->max_bytes_user, IPROT_MAX_BYTES_USER) ?
+    new->max_bytes_user != IPROT_MAX_BYTES_USER ?
     new->max_bytes_user : base->max_bytes_user;
 
   new->bw_redirect_url =
@@ -223,11 +388,23 @@ static void *merge_prot_config(pool *p, void *basev, void *newv)
   return (void *)new;
 } /* merge_prot_config */
 
+#if DEBUG
+static int post_read_request(request_rec *r)
+{
+  server_rec *s = r->server;
+
+  ap_log_error(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, s,
+	       "post_read_request, pid: %i, hostname: %s, uri: %s",
+	       (int)getpid(), r->hostname, r->unparsed_uri);
+  return DECLINED;
+} /* post_read_request */
+#endif
+
 static void send_mail(request_rec *r,
 		      const char *ip, const char *target,
 		      const char *email, const char *host,
 		      const char *subject, const char *message,
-		      const char *expires_1, const char *expires_2)
+		      const int expires_1, const char *expires_2)
 {
   server_rec *s = r->server;
 # define BUFFER_LEN 256
@@ -235,8 +412,8 @@ static void send_mail(request_rec *r,
   FILE *pi;
   const time_t timestamp = r->request_time;
 		      
-  ap_log_error(APLOG_MARK, APLOG_INFO, s,
-	       "mod_iprot: sending email to %s", email);
+  ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
+	       "sending email to %s", email);
   /* Open email command. Must be in default shell's path. */
   snprintf(buffer, BUFFER_LEN, "sendmail -t");
   pi = popen(buffer, "w");
@@ -257,7 +434,7 @@ static void send_mail(request_rec *r,
   fprintf(pi, "timestamp: %s", ctime(&timestamp));
   fprintf(pi, "browser ip: %s\n", ip);
   fprintf(pi, "server hostname: %s\n", host); 
-  fprintf(pi, "expires in: %s %s.\n", expires_1, expires_2);
+  fprintf(pi, "expires in: %i %s.\n", expires_1, expires_2);
 
   pclose(pi);
 } /* send_mail */
@@ -339,7 +516,7 @@ static char *update_timestamp(request_rec *r,
   if (!footprintStr || !item) return NULL;
 
   if (!oldfootprint || !newfootprint || !new_timestamp_str) {
-    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
+    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", "update_timestamp()");
     return NULL;
   }
 
@@ -387,7 +564,7 @@ int count_hits(request_rec *r, const char *key, const char *item,
   footprint_list = /* Allocate enough space for one new record. */
     PALLOC(r->pool, sizeof(footprint) * (num_items + 1));
   if (!footprint_list) {
-    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
+    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", "count_hits()");
     return -1;
   }
 
@@ -397,8 +574,8 @@ int count_hits(request_rec *r, const char *key, const char *item,
 
   /* If we're over the threshold after prune, don't bother continuing. */
   if (num_items > threshold) {
-    ap_log_error(APLOG_MARK, APLOG_INFO, s,
-		 "mod_iprot: count %d exceeds threshold %d, "
+    ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
+		 "count %d exceeds threshold %d, "
 		 "blocking immediately.",
 		 num_items, threshold);
     *newFootprint = NULL;
@@ -407,7 +584,7 @@ int count_hits(request_rec *r, const char *key, const char *item,
 
   if (!(*newFootprint = /* Space for 1 new item. */
 	(char *) PALLOC(r->pool, 20 + strlen(item) + footprintStr_len))) {
-    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
+    ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", "count_hits()");
     return -1;
   }
 
@@ -477,34 +654,55 @@ int count_hits(request_rec *r, const char *key, const char *item,
 static int check_failed_auth_attempts(request_rec *r,
 				      conn_rec *c,
 				      server_rec *s,
-				      prot_config_rec *config_rec,
+				      prot_config_rec *conf_rec,
 				      const char *remote_ip,
 				      const char *admin_email/*,
 				      const char *abuse_email,
 				      const char *hack_email???*/)
 {
-  DBM *db;
-  datum d;
+  DB_TXN *txn_id;
+  DBT d;
   char *newFootprint = NULL;
   char *successfulIPStr = "";
   char *failedIPStr = "";
   char *BlockIgnoreStr = "";
   char *BWStr = "";
   int count, nag;
-  const long interval = atol(config_rec->failed_timeout);
-  const int compareN = atoi(config_rec->failed_compareN);
-  const int failed_threshold = atoi(config_rec->failed_threshold);
   const char *server_name = ap_get_server_name(r);
   int status;
+  int result;
 
-  if (!(db = open_iprot_db(config_rec->filename, IPROT_DB_FLAGS, 0664, r)))
-    return -1; /* I/O Error */
+  /* abort and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
 
-  if (!(get_record(db, &d, server_name, c->user, r)) ||
-      !(get_data_strings(r, &d,
-			 &successfulIPStr, &failedIPStr,
-			 &BlockIgnoreStr, &BWStr))) {
-    close_db(&db, r); 
+  /* transaction_start */
+  if ((result = transaction_start(s, conf_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
+    ap_log_error(APLOG_MARK, APLOG_ERR, s, db_strerror(result));
+    return -1;
+  }
+
+  if ((result = get_record(txn_id, conf_rec->iprot_db, &d,
+			   server_name, c->user, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return -1; /* I/O Error */
+      }
+    }
+  }
+
+  if (!(get_data_strings(r, &d,
+			 &successfulIPStr,
+			 &failedIPStr,
+			 &BlockIgnoreStr,
+			 &BWStr))) {
+    transaction_abort(s, txn_id);
     return -1; /* I/O Error */
   }
 
@@ -512,11 +710,10 @@ static int check_failed_auth_attempts(request_rec *r,
   if (strcmp(BlockIgnoreStr, "")) {
     int block_status;
 
-    if ((block_status = check_block_ignore(BlockIgnoreStr, db,
-					   server_name, c->user,
-					   config_rec, r))) {
-      close_db(&db, r); 
-      return block_status; /* blocked, ignored or error */
+    if ((block_status = check_block_ignore(BlockIgnoreStr,
+					   server_name, c->user, r))) {
+      transaction_abort(s, txn_id);
+      return block_status; /* blocked, ignored, or error */
     }
   }
 
@@ -526,13 +723,14 @@ static int check_failed_auth_attempts(request_rec *r,
     if (index(failedIPStr, '\xbf') == NULL)  /* ¿ */
       nag = 1;
     else 
-      nag = config_rec->nag;
+      nag = conf_rec->nag;
 
     if ((count = count_hits(r, c->user, remote_ip,
 			    failedIPStr, &newFootprint,
-			    interval, compareN, failed_threshold, 0,
-			    config_rec)) == -1)	{
-      close_db(&db, r); 
+			    conf_rec->failed_timeout,/*interval*/
+			    conf_rec->compareN,
+			    conf_rec->failed_threshold, 0, conf_rec)) == -1) {
+      transaction_abort(s, txn_id);
       return -1; /* error in count_hits() */
     }
 
@@ -545,40 +743,53 @@ static int check_failed_auth_attempts(request_rec *r,
 					  BlockIgnoreStr,
 					  BWStr))) {
 	/* out of memory */
-	close_db(&db, r); 
+	transaction_abort(s, txn_id);
 	return -1;
       }
 
-      store_record(db, server_name, c->user, IPdata, r);
+      if ((result =
+	   store_record(txn_id, conf_rec->iprot_db,
+			server_name, c->user, IPdata, r)) != 0) {
+	if (result == DB_LOCK_DEADLOCK) {
+	  goto retry;
+	} else {
+	  transaction_abort(s, txn_id);
+	  return -1;
+	}
+      }
+
+      transaction_commit(s, txn_id, 0);
+    } else {
+      transaction_abort(s, txn_id);
     }
 
-    if (count >= failed_threshold) {
+    if (count >= conf_rec->failed_threshold) {
       char *cmp_ip;
 
       /* check for recent successful logins from this ip */
       if (!(cmp_ip = (char *) PALLOC(r->pool, strlen(remote_ip) + 1))) {
 	/* out of memory */
-	ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-	close_db(&db, r); 
+	ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s",
+		      "check_failed_auth_attempts()");
 	return -1;
       }
       strcpy(cmp_ip, "");
 
-      if (compareN < 4) {
+      if (conf_rec->compareN < 4) {
 	char *tmp_ip, *oct;
 	int i;
 
 	tmp_ip = (char *) PALLOC(r->pool, strlen(remote_ip) + 1);
 	if (!tmp_ip) {
 	  /* out of memory */
-	  ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s", strerror(errno));
-	  close_db(&db, r); 
+	  ap_log_rerror(APLOG_MARK, APLOG_CRIT, r, "%s",
+			"check_failed_auth_attempts()");
 	  return -1;
 	}
 	strcpy(tmp_ip, remote_ip);
 
 	oct = strtok(tmp_ip, ".");
-	for (i = 0; i < compareN; i++) {
+	for (i = 0; i < conf_rec->compareN; i++) {
 	  strcat(cmp_ip, oct);
 	  strcat(cmp_ip, ".");
 	  oct = strtok(NULL, ".");
@@ -591,29 +802,29 @@ static int check_failed_auth_attempts(request_rec *r,
 	status = 0;
       } else {
 	/* username is being abused, block */
-	ap_log_error(APLOG_MARK, APLOG_INFO, s,
+	ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		     "mod_iprot: failed login threshold "
 		     "exceeded for: %s at server %s",
 		     c->user, server_name); 
 
-	if (config_rec->external_progip != NULL) {
-	  ap_log_error(APLOG_MARK, APLOG_INFO, s,
+	if (conf_rec->external_progip != NULL) {
+	  ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		       "mod_iprot: calling external program %s",
-		       config_rec->external_progip);
+		       conf_rec->external_progip);
 	  call_external(r, remote_ip,
-			config_rec->external_progip);
+			conf_rec->external_progip);
 	}
 
-	status = (count > failed_threshold) ? 1 : 0;
+	status = (count > conf_rec->failed_threshold) ? 1 : 0;
       }
     } else {
       status = 0;
     }
   } else {
+    transaction_abort(s, txn_id);
     status = 0; /* no record of this ip */
   }
 
-  close_db(&db, r);
   return status;
 } /* check_failed_auth_attempts */ 
 
@@ -628,35 +839,58 @@ static int check_bandwidth(request_rec *r)
   char *BlockIgnoreStr = "";
   char *BWStr = "";
 
-  DBM *db;
-  datum d;
+  DB_TXN *txn_id;
+  DBT d;
+  int result;
 
   int rtn = 0; /* return value -1: error, 0: not blocked, 1: blocked */
   time_t timestamp = 0;
-  int max_bytes_user;
   int total_bytes_sent;
   char flag_char;
 
   prot_config_rec *config_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
-  /* open database */
-  if (!(db = open_iprot_db(config_rec->filename, IPROT_DB_FLAGS, 0664, r)))
-    return -1; /* I/O Error */
+  /* abort and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
+
+  /* transaction_start */
+  if ((result = transaction_start(s, config_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
+    return -1;
+  }
 
   /* get user's data record and bw str */
-  if (!(get_record(db, &d, server_hostname, c->user, r)) ||
-      !(get_data_strings(r, &d,
+  if ((result = get_record(txn_id, config_rec->iprot_db, &d,
+			   server_hostname, c->user, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return -1; /* I/O Error */
+      }
+    }
+  }
+
+  if (!(get_data_strings(r, &d,
 			 &successfulIPStr, &failedIPStr,
 			 &BlockIgnoreStr, &BWStr))) {
-    close_db(&db, r); 
+    transaction_abort(s, txn_id);
     return -1; /* I/O Error or out of memory*/
   }
 
   if (strcmp(BWStr, "")) {
     if (sscanf(BWStr, "%i%c%i", &total_bytes_sent,
 	       &flag_char, (int *)&timestamp) == 3) {
-      if (config_rec->bw_timeout &&  /* periodic block? */
+
+      if ((config_rec->bw_timeout &&
+	   periodic_block_expired(timestamp,
+				  config_rec->bw_timeout,
+				  r->request_time)) /* periodic block? */ ||
 	  diff_day(timestamp, r->request_time)) {  /* new calendar day? */
 	char *dataStr = NULL;
 	/* store user's record with zeroed bw data, record_bytes_sent
@@ -664,28 +898,25 @@ static int check_bandwidth(request_rec *r)
 	if ((dataStr =
 	     combine_data_strings(r, successfulIPStr, failedIPStr,
 				  BlockIgnoreStr, ""))) {
-	  store_record(db, server_hostname, c->user, dataStr, r);
+	  if ((result =
+	       store_record(txn_id, config_rec->iprot_db,
+			    server_hostname, c->user, dataStr, r)) != 0) {
+	    if (result == DB_LOCK_DEADLOCK) {
+	      goto retry;
+	    } else {
+	      transaction_abort(s, txn_id);
+	      return FALSE;
+	    }
+	  }
+	} else {
+	  transaction_abort(s, txn_id);
+	  return FALSE;
 	}
       } else {
-	max_bytes_user = atoi(config_rec->max_bytes_user);
-
-	if (total_bytes_sent > (max_bytes_user * MBYTE)) {
+	if (total_bytes_sent > (config_rec->max_bytes_user * MBYTE)) {
 	  /* user has exceeded maximum transfer */
 
-	  if (config_rec->bw_timeout &&  /* periodic block? */
-	      ((timestamp + (config_rec->bw_timeout * SEC_PER_HOUR)) <
-	       r->request_time)) {
-	    /* block has expired, remove */
-	    char *dataStr = NULL;
-	    if ((dataStr =
-		 combine_data_strings(r, successfulIPStr, failedIPStr,
-				      BlockIgnoreStr, ""))) {
-	      store_record(db, server_hostname, c->user, dataStr, r);
-	    }
-	    return 0;
-	  }
-
-	  rtn = 1;
+	  rtn = TRUE;
 	  /* send email ? */
 	  if (((flag_char == S_CHAR) || config_rec->nag) &&
 	      config_rec->notifybw) {
@@ -693,25 +924,23 @@ static int check_bandwidth(request_rec *r)
 	      (config_rec->bw_email == NULL) ?
 	      s->server_admin : config_rec->bw_email;
 
-	    /* get the real ip, if possible, otherwise go with c->remote_ip */
+	    /* get the real ip, if possible,
+	     * otherwise go with c->remote_ip */
 	    char *remote_ip = lookup_header(r, "HTTP_X_FORWARDED_FOR");
 	    if (remote_ip == NULL) remote_ip = c->remote_ip;
 
 	    if (config_rec->bw_timeout) {
-	      char buf[8];
-
-	      snprintf(buf, 8, "%i", config_rec->bw_timeout);
 	      send_mail(r, remote_ip, c->user, 
 			admin_email, server_hostname,
 			"iProtect BandWidth notification",
 			"Daily BandWidth exceeded for user",
-			buf, "hours");
+			config_rec->bw_timeout, "hours");
 	    } else {
 	      send_mail(r, remote_ip, c->user, 
 			admin_email, server_hostname,
 			"iProtect BandWidth notification",
 			"Daily BandWidth exceeded for user",
-			"1", "day");
+			1, "day");
 	    }
 
 	    if (flag_char == S_CHAR) {
@@ -729,19 +958,31 @@ static int check_bandwidth(request_rec *r)
 	      if ((dataStr =
 		   combine_data_strings(r, successfulIPStr, failedIPStr,
 					BlockIgnoreStr, buffer))) {
-		store_record(db, server_hostname, c->user, dataStr, r);
+		if ((result =
+		     store_record(txn_id, config_rec->iprot_db,
+				  server_hostname,
+				  c->user, dataStr, r) ) != 0) {
+		  if (result == DB_LOCK_DEADLOCK) {
+		    goto retry;
+		  } else {
+		    transaction_abort(s, txn_id);
+		    return FALSE;
+		  }
+		}
+	      } else {
+		transaction_abort(s, txn_id);
+		return FALSE;
 	      }
 	    }
 	  } /* send email */
 	}
       }
-    } else {
+    } /* if (sscanf(BWStr, ... */ else {
       rtn = -1; /* error scanning string */
     }
-  }
+  } /* if (strcmp(BWStr, "")) */
 
-  close_db(&db, r);
-
+  transaction_commit(s, txn_id, 0);
   return rtn;
 } /* check_bandwidth */
 
@@ -758,20 +999,18 @@ static int record_auth_attempt(request_rec *r)
   char *dataStr = NULL;
   const char *sent_pw;
   char *admin_email;
-  char *abuse_email;
-  char *hack_email;
 # undef BUFFFER_LEN
 # define BUFFFER_LEN 128
   char buffer[BUFFFER_LEN];
-  int compareN, res, num_hits, threshold, nag;
-  long interval;
+  int res, num_hits, nag;
   char *remote_ip;
   char *newFootprint = NULL;
 
-  DBM *db;
-  datum d;
+  DB_TXN *txn_id;
+  DBT d;
+  int result;
 
-  prot_config_rec *rec =	/* module config rec */
+  prot_config_rec *conf_rec =	/* module config rec */
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
   /* if basic auth hasn't triggered yet, prompt for password */
@@ -793,113 +1032,128 @@ static int record_auth_attempt(request_rec *r)
   remote_ip = lookup_header(r, "HTTP_X_FORWARDED_FOR");
   if (remote_ip == NULL) remote_ip = c->remote_ip;
 
-  LOG_PRINTF(s, "mod_iprot: record_auth enabled_flag = %d", rec->enabled);
+  LOG_PRINTF(s, "mod_iprot: record_auth enabled_flag = %d", conf_rec->enabled);
 
-  if (!rec->enabled)  /* enable flag is not set */
+  if (!conf_rec->enabled)  /* enable flag is not set */
     return DECLINED;
 
   /* if the user is in the ignore list, just ignore it... */
-  if (match_string(r, rec->ignore_users, c->user))
+  if (match_string(r, conf_rec->ignore_users, c->user))
     return DECLINED;
 
   /* if the ip is in the ignore list, just ignore it... */
-  if (match_string(r, rec->ignore_ips, remote_ip))
+  if (match_string(r, conf_rec->ignore_ips, remote_ip))
     return DECLINED;
 
-  if (r->header_only && rec->no_HEAD_req)
+  if (r->header_only && conf_rec->no_HEAD_req)
     return DONE; /* HEAD request, close connection w/o returning anything. */
 		 /* Do this here so we only affect requests for pages */
 		 /* requiring authentication. */
 
   /* allow the IProtEmail to override the server admin, if set. Could
      this be moved to the configuration section???*/
-  if (rec->hack_email == NULL)
+  if (conf_rec->hack_email == NULL)
     admin_email = s->server_admin;
   else
-    admin_email = rec->hack_email;
+    admin_email = conf_rec->hack_email;
 
   /* check for number of failed logins from different ips */
-  if (rec->failed_timeout && rec->failed_threshold)
-    switch (check_failed_auth_attempts(r, c, s, rec, remote_ip, admin_email)) {
+  if (conf_rec->failed_timeout && conf_rec->failed_threshold)
+    switch (check_failed_auth_attempts(r, c, s, conf_rec,
+				       remote_ip, admin_email)) {
     case -1:	/* error or user ignored */
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking blocked */
-      switch (rec->hack_status_return) {
+      switch (conf_rec->hack_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->hack_redirect_url)
-	  ap_internal_redirect(rec->hack_redirect_url, r);
+	if (conf_rec->hack_redirect_url)
+	  ap_internal_redirect(conf_rec->hack_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
     }
 
   /* check for bandwidth used */
-  if (atoi(rec->max_bytes_user))
+  if (conf_rec->max_bytes_user)
     switch (check_bandwidth(r)) {
     case -1:	/* error */
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking blocked */
-      switch (rec->bw_status_return) {
+      switch (conf_rec->bw_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->bw_redirect_url)
-	  ap_internal_redirect(rec->bw_redirect_url, r);
+	if (conf_rec->bw_redirect_url)
+	  ap_internal_redirect(conf_rec->bw_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
     }
 
   /* interval for login attempts is in seconds, not hours */
-  if (rec->auth_timeout == NULL || rec->threshold == NULL)
+  if (!conf_rec->auth_timeout || !conf_rec->threshold)
     return DECLINED;
 
-  compareN = atoi(rec->compareN);
-  interval = atol (rec->auth_timeout);	
-  threshold = atoi (rec->threshold);
+  /* abort and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
 
-  /* open iprot database */
-  if (!(db = open_db(rec->filename, IPROT_DB_FLAGS, 0664, r)))
+  /* transaction_start */
+  if ((result = transaction_start(s, conf_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
     return DECLINED;
+  }
 
   /* read a password record */
   LOG_PRINTF(s, "mod_iprot: getting record for IP %s", remote_ip);
-  if (!get_record(db, &d, server_hostname, remote_ip, r) ||
-      !get_data_strings(r, &d, &PWStr, &BlockIgnoreStr, NULL, NULL)) {
-    close_db(&db, r); 
+
+  if ((result = get_record(txn_id, conf_rec->iprot_db, &d,
+			   server_hostname, remote_ip, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return DECLINED; /* I/O Error */
+      }
+    }
+  }
+
+  if (!get_data_strings(r, &d, &PWStr, &BlockIgnoreStr, NULL, NULL)) {
     return DECLINED;
   }
 
   /* Check for block or ignore on IP. */
   if (strcmp(BlockIgnoreStr, ""))
-    switch (check_block_ignore(BlockIgnoreStr, db,
-			       server_hostname, remote_ip,
-			       rec, r)) {
+    switch (check_block_ignore(BlockIgnoreStr, server_hostname,
+			       remote_ip, r)) {
     case -1:	/* error or ip ignored */
-      close_db(&db, r); 
+      transaction_abort(s, txn_id);
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking detected or blocked */
-      close_db(&db, r);
-      switch (rec->hack_status_return) {
+      transaction_commit(s, txn_id, 0);
+      switch (conf_rec->hack_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->hack_redirect_url)
-	  ap_internal_redirect(rec->hack_redirect_url, r);
+	if (conf_rec->hack_redirect_url)
+	  ap_internal_redirect(conf_rec->hack_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
@@ -913,56 +1167,67 @@ static int record_auth_attempt(request_rec *r)
     if (index(PWStr, '\xbf') == NULL)	 /* ¿ */
       nag = 1;
     else 
-      nag = rec->nag;
+      nag = conf_rec->nag;
 
-    ap_log_error(APLOG_MARK, APLOG_INFO, s,
+    ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		 "mod_iprot: nag = %d notifyip = %d",
-		 nag, rec->notifyip);
+		 nag, conf_rec->notifyip);
 
     if ((num_hits = count_hits(r, remote_ip, (char *) sent_pw,
 			       PWStr, &newFootprint,
-			       interval, compareN, threshold, 1, rec)) == -1) {
-      close_db(&db, r); 
+			       conf_rec->auth_timeout,/*interval*/
+			       conf_rec->compareN,
+			       conf_rec->threshold, 1, conf_rec)) == -1) {
+      transaction_abort(s, txn_id);
       return -1; /* error in count_hits() */
     }
 
     if (newFootprint && /* changed in count_hits */
 	(dataStr =
 	combine_data_strings(r, newFootprint, BlockIgnoreStr, NULL, NULL))) {
-      store_record(db, server_hostname, remote_ip /*key*/, dataStr, r);
+      if ((result =
+	   store_record(txn_id, conf_rec->iprot_db,
+			server_hostname, remote_ip, dataStr, r)) != 0) {
+	if (result == DB_LOCK_DEADLOCK) {
+	  goto retry;
+	} else {
+	  transaction_abort(s, txn_id);
+	  return -1;
+	}
+      }
     }
 
-    close_db(&db, r);
+    transaction_commit(s, txn_id, 0);
 
-    if (num_hits >= threshold) {
+    if (num_hits >= conf_rec->threshold) {
       if (nag) {
-	if (rec->notifyip) {
+	if (conf_rec->notifyip) {
 	  send_mail(r, remote_ip, c->user, 
 		    admin_email, server_hostname,
 		    "iProtect Hacking notification",
 		    "Password hacking attempt detected",
-		    rec->auth_timeout, "seconds");
+		    conf_rec->auth_timeout, "seconds");
 	}
       }
     } /* if (num_hits >= ... */
 
-    if (num_hits > threshold) {
+    if (num_hits > conf_rec->threshold) {
       LOG_PRINTF(s, "mod_iprot: threshold exceeded for: %s", remote_ip); 
-      if (rec->external_progip != NULL) {
-	ap_log_error (APLOG_MARK, APLOG_INFO, s,
+      if (conf_rec->external_progip != NULL) {
+	ap_log_error (APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		      "mod_iprot: calling external program %s",
-		      rec->external_progip);
-	call_external(r, remote_ip, rec->external_progip);
+		      conf_rec->external_progip);
+	call_external(r, remote_ip, conf_rec->external_progip);
       }
 
-      switch (rec->hack_status_return) {
+      switch (conf_rec->hack_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->hack_redirect_url)
-	  ap_internal_redirect(rec->hack_redirect_url, r);
+	if (conf_rec->hack_redirect_url)
+	  ap_internal_redirect(conf_rec->hack_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
@@ -971,12 +1236,22 @@ static int record_auth_attempt(request_rec *r)
     LOG_PRINTF(s, "mod_iprot: no record for IP %s, creating new record",
 	       remote_ip);
     snprintf(buffer, BUFFER_LEN, "1?%s:%li", sent_pw,
-	     (long) (r->request_time + interval));
+	     (long) (r->request_time + conf_rec->auth_timeout/*interval*/));
     LOG_PRINTF(s, "mod_iprot: new record = %s", buffer);
     if ((dataStr =
 	 combine_data_strings(r, buffer, BlockIgnoreStr, NULL, NULL)))
-      store_record(db, server_hostname, remote_ip, dataStr, r);
-    close_db(&db, r); 
+      if ((result =
+	   store_record(txn_id, conf_rec->iprot_db,
+			server_hostname, remote_ip, dataStr, r)) != 0) {
+	if (result == DB_LOCK_DEADLOCK) {
+	  goto retry;
+	} else {
+	  transaction_abort(s, txn_id);
+	  return -1;
+	}
+      }
+
+    transaction_commit(s, txn_id, 0);
   }
   
   return DECLINED;
@@ -990,83 +1265,103 @@ static int record_access_attempt(request_rec *r)
   conn_rec *c = r->connection;
   const char *server_hostname = ap_get_server_name(r);
 
+  DB_TXN *txn_id;
+  DBT d;
+  int result;
+
   char *IPStr = "";
   char *failedIPStr = "";
   char *successfulIPStr = "";
   char *BlockIgnoreStr = "";
   char *BWStr = "";
   char *admin_email;
-  char *abuse_email;
-  char *hack_email;
   char *remote_ip;
   long interval;
-  int compareN, num_hits, threshold, nag;
+  int num_hits, nag;
   char *newFootprint = NULL;
 
-  DBM *db;
-  datum d;
-
-  prot_config_rec *rec =	/* get our module configuration record */
+  prot_config_rec *conf_rec =	/* get our module configuration record */
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
-  LOG_PRINTF(s, "mod_iprot: record_access enabled_flag: %d", rec->enabled);
+  LOG_PRINTF(s, "mod_iprot: record_access enabled_flag: %d",
+	     conf_rec->enabled);
 
-  if (!rec->enabled) return OK;
+  if (!conf_rec->enabled) return OK;
 
   /* get the real ip, if possible, otherwise go with r->remote_ip */
   remote_ip = lookup_header(r, "HTTP_X_FORWARDED_FOR");
   if (remote_ip == NULL) remote_ip = c->remote_ip;
 
   /* if the user or ip is in the ignore list, just ignore it... */
-  if (match_string(r, rec->ignore_users, c->user)) return OK;
-  if (match_string(r, rec->ignore_ips, remote_ip)) return OK;
+  if (match_string(r, conf_rec->ignore_users, c->user)) return OK;
+  if (match_string(r, conf_rec->ignore_ips, remote_ip)) return OK;
 
   /* allow the IProtAbuseEmail to override the server admin, if set ???*/
-  if (rec->abuse_email == NULL)
+  if (conf_rec->abuse_email == NULL)
     admin_email = s->server_admin;
   else
-    admin_email = rec->abuse_email;
+    admin_email = conf_rec->abuse_email;
 
   /* interval for IPs is in hours */
-  if (rec->access_timeout == NULL || rec->threshold == NULL)
+  if (!conf_rec->access_timeout || !conf_rec->threshold)
     return DECLINED;
 
-  compareN = atoi(rec->compareN);
-  interval = atol (rec->access_timeout) * 60 * 60;  
-  threshold = atoi (rec->threshold);
+  interval = (conf_rec->access_timeout * 60) * 60;	 
 
-  /* read a username record */
-  if (!(db = open_db(rec->filename, IPROT_DB_FLAGS, 0664, r)))
+  /* abort transaction and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
+
+  /* transaction_start */
+  if ((result = transaction_start(s, conf_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
     return OK;
+  }
 
   LOG_PRINTF(s, "mod_iprot: getting record for username %s", c->user);	
-  if (!get_record(db, &d, server_hostname, c->user, r) ||
-      !get_data_strings(r, &d, &IPStr, &failedIPStr, &BlockIgnoreStr, &BWStr) ||
+
+  /* read a username record */
+  if ((result = get_record(txn_id, conf_rec->iprot_db, &d,
+			   server_hostname, c->user, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return OK; /* I/O Error */
+      }
+    }
+  }
+
+  if (!get_data_strings(r, &d, &IPStr,
+			&failedIPStr, &BlockIgnoreStr, &BWStr) ||
       (strcmp(IPStr, "") && !(successfulIPStr =
-		  PSTRDUP(r->pool, IPStr)))) { /* count_hits() changes IPStr */
-    close_db(&db, r); 
+			      PSTRDUP(r->pool, IPStr)))) {
+    /* count_hits() changes IPStr */
+    transaction_abort(s, txn_id);
     return OK;
   }
 
   /* check for block or ignore on user */
   if (strcmp(BlockIgnoreStr, "")) {
-    switch (check_block_ignore(BlockIgnoreStr, db, server_hostname,
-			       c->user, rec, r)) {
+    switch (check_block_ignore(BlockIgnoreStr, server_hostname, c->user, r)) {
     case -1:	/* error or user ignored */
-      close_db(&db, r); 
+      transaction_abort(s, txn_id);
       return DECLINED;
     case 0:	/* no error or abuse, continue processing */
       break;
     case 1:	/* password cracking detected or blocked */
-      close_db(&db, r); 
-      switch (rec->hack_status_return) {
+      transaction_commit(s, txn_id, 0);
+      switch (conf_rec->hack_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->hack_redirect_url)
-	  ap_internal_redirect(rec->hack_redirect_url, r);
+	if (conf_rec->hack_redirect_url)
+	  ap_internal_redirect(conf_rec->hack_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
@@ -1081,16 +1376,18 @@ static int record_access_attempt(request_rec *r)
     if (index(IPStr, '\xbf') == NULL)  /* ¿ */
       nag = 1;
     else 
-      nag = rec->nag;
+      nag = conf_rec->nag;
 
     LOG_PRINTF(s, "mod_iprot: IPSTR = %s", IPStr);
-    ap_log_error(APLOG_MARK, APLOG_INFO, s,
+    ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		 "mod_iprot: nag = %d notifyuser = %d",
-		 nag, rec->notifyuser);
+		 nag, conf_rec->notifyuser);
 
-    if ((num_hits = count_hits(r, c->user, remote_ip, IPStr, &newFootprint,
-			       interval, compareN, threshold, 1, rec)) == -1) {
-      close_db(&db, r);
+    if ((num_hits = count_hits(r, c->user, remote_ip,
+			       IPStr, &newFootprint,
+			       interval, conf_rec->compareN,
+			       conf_rec->threshold, 1, conf_rec)) == -1) {
+      transaction_abort(s, txn_id);
       return -1; /* error in count_hits() */
     }
 
@@ -1098,42 +1395,52 @@ static int record_access_attempt(request_rec *r)
       char *IPdata = NULL;
     
       if ((IPdata = combine_data_strings(r, newFootprint, failedIPStr,
-					 BlockIgnoreStr, BWStr)))
-	store_record(db, server_hostname, c->user, IPdata, r);
+					 BlockIgnoreStr, BWStr))) {
+	if ((result =
+	     store_record(txn_id, conf_rec->iprot_db,
+			  server_hostname, c->user, IPdata, r)) != 0) {
+	  if (result == DB_LOCK_DEADLOCK) {
+	    goto retry;
+	  } else {
+	    transaction_abort(s, txn_id);
+	    return -1;
+	  }
+	}
+      }
     }
 
-    if (num_hits >= threshold) {
+    if (num_hits >= conf_rec->threshold) {
       /* blocking threshold reached, send email */
       LOG_PRINTF(s, "mod_iprot: threshold exceeded for: %s", c->user);
       if (nag) { 
-	if (rec->notifyuser) {
+	if (conf_rec->notifyuser) {
 	  send_mail(r, remote_ip, c->user, 
 		    admin_email, server_hostname,
 		    "iProtect Shared Access Abuse notification",
 		    "Detected use of a shared password",
-		    rec->access_timeout, "hours");	  
+		    conf_rec->access_timeout, "hours");	  
 	}
       }
     } /* if (num_hits >= threshold ... */
 
-    if (num_hits > threshold) {
-      if (rec->external_proguser != NULL) {
-	ap_log_error(APLOG_MARK, APLOG_INFO, s,
+    if (num_hits > conf_rec->threshold) {
+      if (conf_rec->external_proguser != NULL) {
+	ap_log_error(APLOG_MARK, APLOG_INFO | APLOG_NOERRNO, s,
 		     "mod_iprot: calling external program %s",
-		     rec->external_proguser);
-	call_external(r, c->user, rec->external_proguser);
+		     conf_rec->external_proguser);
+	call_external(r, c->user, conf_rec->external_proguser);
       }
 
-      close_db(&db, r);
+      transaction_commit(s, txn_id, 0);
 
-      switch (rec->abuse_status_return) {
+      switch (conf_rec->abuse_status_return) {
       case 0:
 	return DONE;
       case 1:
 	return FORBIDDEN;
       case 2:
-	if (rec->abuse_redirect_url)
-	  ap_internal_redirect(rec->abuse_redirect_url, r);
+	if (conf_rec->abuse_redirect_url)
+	  ap_internal_redirect(conf_rec->abuse_redirect_url, r);
 	else
 	  return FORBIDDEN;
       }
@@ -1149,11 +1456,20 @@ static int record_access_attempt(request_rec *r)
 					r->request_time + interval);
 
       if ((IPdata = /* Memory allocated in function. */
-	   combine_data_strings(r,
-				newFootprint, failedIPStr,
-				BlockIgnoreStr, BWStr)))
-	store_record(db, server_hostname, c->user, IPdata, r);
-      /* Don't store record if IPdata is NULL as we had an error. */
+	   combine_data_strings(r, newFootprint, failedIPStr,
+				BlockIgnoreStr, BWStr))) {
+	/* Don't store record if IPdata is NULL as we had an error. */
+	if ((result =
+	     store_record(txn_id, conf_rec->iprot_db,
+			  server_hostname, c->user, IPdata, r)) != 0) {
+	  if (result == DB_LOCK_DEADLOCK) {
+	    goto retry;
+	  } else {
+	    transaction_abort(s, txn_id);
+	    return -1;
+	  }
+	}
+      }
     }
   } else { /* no record found in db for user with successful logins */
 #   undef BUFFER_LEN
@@ -1167,24 +1483,39 @@ static int record_access_attempt(request_rec *r)
 	     (long) (r->request_time + interval));
     LOG_PRINTF(s, "mod_iprot: new record = %s", buffer);
 
-    if ((IPdata =
-	 combine_data_strings(r, buffer, failedIPStr, BlockIgnoreStr, BWStr)))
-      store_record(db, server_hostname, c->user, IPdata, r);
+    if ((IPdata = combine_data_strings(r,
+				       buffer,
+				       failedIPStr,
+				       BlockIgnoreStr,
+				       BWStr))) {
+      if ((result =
+	   store_record(txn_id, conf_rec->iprot_db,
+			server_hostname, c->user, IPdata, r)) != 0) {
+	if (result == DB_LOCK_DEADLOCK) {
+	  goto retry;
+	} else {
+	  transaction_abort(s, txn_id);
+	  return -1;
+	}
+      }
+    }
   }
 
-  close_db(&db, r);
+  transaction_commit(s, txn_id, 0);
   return OK; 
 } /* record_access_attempt */
 
 static void record_failed_auth_attempt(request_rec *r,
 				       conn_rec *c,
 				       server_rec *s,
-				       prot_config_rec *config_rec,
+				       prot_config_rec *conf_rec,
 				       const char *sent_pw,
 				       const char *server_hostname)
 {
-  DBM *db;
-  datum d;
+  DB_TXN *txn_id;
+  DBT d;
+  int result;
+
   char *remote_ip;
   int num_hits;
   char *newFootprint = NULL;
@@ -1192,23 +1523,41 @@ static void record_failed_auth_attempt(request_rec *r,
   char *failedIPStr = "";
   char *BlockIgnoreStr = "";
   char *BWStr = "";
-  long failed_interval = atol(config_rec->failed_timeout);
-  int failed_threshold = atoi(config_rec->failed_threshold);
-  int failed_compareN = atoi(config_rec->failed_compareN);
 
   /* get the proxy ip if one exists, otherwise go with r->remote_ip */
   remote_ip = lookup_header(r, "HTTP_X_FORWARDED_FOR");
   if (remote_ip == NULL) remote_ip = c->remote_ip;
 
-  if (!(db = open_iprot_db(config_rec->filename, IPROT_DB_FLAGS, 0664, r)))
+  /* abort and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
+
+  /* transaction_start */
+  if ((result = transaction_start(s, conf_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
     return;
+  }
 
   /* Abort and return if fatal error. Caller ignores error and continues. */
-  LOG_PRINTF(s, "mod_iprot: getting record for username %s", c->user);	
-  if (!get_record(db, &d, server_hostname, c->user, r) ||
-      !get_data_strings(r, &d, &successfulIPStr,
+  LOG_PRINTF(s, "mod_iprot: getting record for username %s", c->user);
+
+  if ((result = get_record(txn_id, conf_rec->iprot_db, &d,
+			   server_hostname, c->user, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return; /* I/O Error */
+      }
+    }
+  }
+
+  if (!get_data_strings(r, &d, &successfulIPStr,
 			&failedIPStr, &BlockIgnoreStr, &BWStr)) {
-    close_db(&db, r);
+    transaction_abort(s, txn_id);
     return;
   }
 
@@ -1218,16 +1567,18 @@ static void record_failed_auth_attempt(request_rec *r,
     if (index(failedIPStr, '\xbf') == NULL)  /* ¿ */
       nag = 1;
     else 
-      nag = config_rec->nag;
+      nag = conf_rec->nag;
 
     /* Record found for user with failed auth attempts. */
     LOG_PRINTF(s, "mod_iprot: failedIPStr = %s", failedIPStr);
 
     if ((num_hits = count_hits(r, c->user, remote_ip, failedIPStr,
-			       &newFootprint, failed_interval,
-			       failed_compareN, failed_threshold, 1,
-			       config_rec)) == -1) {
-      close_db(&db, r); 
+			       &newFootprint,
+			       conf_rec->failed_timeout/*interval*/,
+			       conf_rec->failed_compareN,
+			       conf_rec->failed_threshold,
+			       1, conf_rec)) == -1) {
+      transaction_abort(s, txn_id);
       return; /* error in count_hits() */
     }
 
@@ -1238,31 +1589,41 @@ static void record_failed_auth_attempt(request_rec *r,
 					 successfulIPStr,
 					 newFootprint,
 					 BlockIgnoreStr,
-					 BWStr)))
-	store_record(db, ap_get_server_name(r), c->user, IPdata, r);
+					 BWStr))) {
+	if ((result =
+	     store_record(txn_id, conf_rec->iprot_db,
+			  ap_get_server_name(r), c->user, IPdata, r)) != 0) {
+	  if (result == DB_LOCK_DEADLOCK) {
+	    goto retry;
+	  } else {
+	    transaction_abort(s, txn_id);
+	    return;
+	  }
+	}
+      }
     }
 
-    if (num_hits >= failed_threshold) { 
+    transaction_commit(s, txn_id, 0);
+
+    if (num_hits >= conf_rec->failed_threshold) { 
       /* username is being abused, notify */
       const char *server_hostname = ap_get_server_name(r);
       char *admin_email;
-      char *abuse_email;
-      char *hack_email;
 
       /* allow the IProtEmail to override the server admin, if set. Could
 	 this be moved to the configuration section?? ???*/
-      if (config_rec->hack_email == NULL)
+      if (conf_rec->hack_email == NULL)
 	admin_email = s->server_admin;
       else
-	admin_email = config_rec->hack_email;
+	admin_email = conf_rec->hack_email;
 
       if (nag) {
-	if (config_rec->notifylogin) {
+	if (conf_rec->notifylogin) {
 	  send_mail(r, remote_ip, c->user, 
 		    admin_email, server_hostname,
 		    "iProtect Failed Login notification",
 		    "Too many failed logins for user detected",
-		    config_rec->failed_timeout, "seconds");
+		    conf_rec->failed_timeout, "seconds");
 	}
       }
     } /* if (num_hits >= ... */
@@ -1274,34 +1635,44 @@ static void record_failed_auth_attempt(request_rec *r,
     LOG_PRINTF(s, "mod_iprot: no record for username %s detected, "
 	       "creating new record", c->user);
     snprintf(failedIPStr, 128, "1?%s:%li", remote_ip,
-	     (long) (r->request_time + failed_interval));
+	     (long) (r->request_time + conf_rec->failed_timeout/*interval*/));
     LOG_PRINTF(s, "mod_iprot: new record = %s", failedIPStr);
 
     if ((IPdata = combine_data_strings(r,
 				       successfulIPStr,
 				       failedIPStr,
 				       BlockIgnoreStr,
-				       BWStr)))
-      store_record(db, ap_get_server_name(r), c->user, IPdata, r);
-  }
+				       BWStr))) {
+      if ((result =
+	   store_record(txn_id, conf_rec->iprot_db,
+			ap_get_server_name(r), c->user, IPdata, r)) != 0) {
+	if (result == DB_LOCK_DEADLOCK) {
+	  goto retry;
+	} else {
+	  transaction_abort(s, txn_id);
+	  return;
+	}
+      }
+    }
 
-  close_db(&db, r);
+    transaction_commit(s, txn_id, 0);
+  }
 } /* record_failed_auth_attempt */
 
 static int record_bytes_sent(request_rec *r)
 {
   server_rec *s = r->server;
   conn_rec *c = r->connection;
-  char *user = c->user;
   const char *server_hostname = ap_get_server_name(r);
+
+  DB_TXN *txn_id;
+  DBT d;
+  int result;
 
   char *successfulIPStr = "";
   char *failedIPStr = "";
   char *BlockIgnoreStr = "";
   char *BWStr = "";
-
-  DBM *db;
-  datum d;
 
 # undef BUFFER_LEN
 # define BUFFER_LEN 32
@@ -1311,35 +1682,53 @@ static int record_bytes_sent(request_rec *r)
   time_t timestamp;
   int total_bytes_sent = 0;
   char flag_char = S_CHAR;	/* separator char coding if
-				/* email sent for block */
+				   email sent for block */
+				 
+  /* check for user in config file ignore ??? */
 
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
   /* if the user is in the ignore list, just ignore it... */
-  if (match_string(r, config_rec->ignore_users, c->user))
+  if (match_string(r, conf_rec->ignore_users, c->user))
     return TRUE;
 
-  /* lots of requests don't have this, so don't even open the db */ 
-  if (r->bytes_sent == 0)
-    return TRUE;
+  /* abort and retry */
+  if (FALSE) {
+  retry:
+    transaction_abort(s, txn_id);
+  }
 
-  /* open database */
-  if (!(db = open_iprot_db(config_rec->filename, IPROT_DB_FLAGS, 0664, r)))
-    return -1; /* I/O Error */
+  /* transaction_start */
+  if ((result = transaction_start(s, conf_rec->db_envp,
+				  NULL, &txn_id, DB_TXN_FLAGS)) != 0) {
+    return -1;
+  }
 
   /* get user's data record and bw str */
-  if (!(get_record(db, &d, server_hostname, c->user, r)) ||
-      !(get_data_strings(r, &d,
-			 &successfulIPStr, &failedIPStr,
-			 &BlockIgnoreStr, &BWStr))) {
-    close_db(&db, r); 
+  if ((result = get_record(txn_id, conf_rec->iprot_db, &d,
+			   server_hostname, c->user, r)) != 0) {
+    if (result != DB_NOTFOUND) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return -1; /* I/O Error */
+      }
+    }
+  }
+
+  if (!(get_data_strings(r, &d,
+			 &successfulIPStr,
+			 &failedIPStr,
+			 &BlockIgnoreStr,
+			 &BWStr))) {
+    transaction_abort(s, txn_id);
     return FALSE; /* I/O Error */
   }
 
-  if (strcmp(BlockIgnoreStr, "") &&
-      (BlockIgnoreStr[0] == 'B' || BlockIgnoreStr[0] == 'I')) {
-    close_db(&db, r); 
+  if (strcmp(BlockIgnoreStr, "") && BlockIgnoreStr[0] == 'I') {
+    transaction_abort(s, txn_id); 
     return TRUE;
   }
 
@@ -1348,12 +1737,22 @@ static int record_bytes_sent(request_rec *r)
   if (strcmp(BWStr, "")) {
     if (sscanf(BWStr, "%i%c%i", &total_bytes_sent,
 	       &flag_char, (int *)&timestamp) == 3) {
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, r,
+		    "record_bytes_sent(): total_bytes_sent %i",
+		    total_bytes_sent);
       total_bytes_sent += + r->bytes_sent;
-      if (config_rec->bw_timeout)
+#if 0
+      if (!conf_rec->bw_timeout) ???
 	timestamp = r->request_time; /* update timestamp if not using
 					daily bw limit */
+#endif
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, r,
+		    "record_bytes_sent(): total_bytes_sent %i, bytes_sent %li",
+		    total_bytes_sent, r->bytes_sent);
     } else { 
-      close_db(&db, r); 
+      transaction_abort(s, txn_id);
+      ap_log_rerror(APLOG_MARK, APLOG_ERR | APLOG_NOERRNO, r,
+		    "sscanf() failed in record_bytes_sent()");
       return FALSE;
     }
   } else {
@@ -1362,21 +1761,35 @@ static int record_bytes_sent(request_rec *r)
 				    is no existing record because we
 				    keep track of bytes downloaded per
 				    day */
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG | APLOG_NOERRNO, r,
+		  "record_bytes_sent(): total_bytes_sent %i, bytes_sent %li",
+		  total_bytes_sent, r->bytes_sent);
   }
 
   /* make a new bw str */
   snprintf(buffer, BUFFER_LEN, "%i%c%i",
-	   total_bytes_sent, flag_char, timestamp);
+	   total_bytes_sent, flag_char, (int)timestamp);
 
   /* store user's record */
   if ((dataStr =
-       combine_data_strings(r, successfulIPStr, failedIPStr,
-			    BlockIgnoreStr, buffer))) {
-    store_record(db, server_hostname, c->user, dataStr, r);
+       combine_data_strings(r,
+			    successfulIPStr,
+			    failedIPStr,
+			    BlockIgnoreStr,
+			    buffer))) {
+    if ((result =
+	 store_record(txn_id, conf_rec->iprot_db,
+		      server_hostname, c->user, dataStr, r)) != 0) {
+      if (result == DB_LOCK_DEADLOCK) {
+	goto retry;
+      } else {
+	transaction_abort(s, txn_id);
+	return FALSE;
+      }
+    }
   }
 
-  close_db(&db, r);
-
+  transaction_commit(s, txn_id, 0);
   return TRUE;
 } /* record_bytes_sent */
 
@@ -1394,7 +1807,7 @@ static int iprot_record(request_rec *r)
   const char *sent_pw;
   int auth_result;
 
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(s->module_config, &iprot_module);
 
   /* If authentication is not in use for this request exit. */
@@ -1406,12 +1819,13 @@ static int iprot_record(request_rec *r)
   case OK:
     switch (r->status) {
     case HTTP_UNAUTHORIZED : { /* 401 */
-      record_failed_auth_attempt(r, c, s, config_rec,
+      record_failed_auth_attempt(r, c, s, conf_rec,
 				 sent_pw, server_hostname);
       return DECLINED; /* incorrect user or password */
     }
-    case HTTP_OK : { /* 200 */
-      if (atoi(config_rec->max_bytes_user))
+    case HTTP_NOT_MODIFIED: /* 304 ??? */
+    case HTTP_OK: { /* 200 */
+      if (conf_rec->max_bytes_user)
 	record_bytes_sent(r);
       return DECLINED; /* correct user and password */
     }
@@ -1446,107 +1860,104 @@ static int set_block_ignore_file, set_max_bytes_user, set_bw_redirect_url;
 
 static const char *set_var(cmd_parms *cmd, void *dummy, char *t)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  
   if (&set_threshold == cmd->info) {
-    if (!(config_rec->threshold = PSTRDUP(cmd->pool, t)))
-      server_init_abort(cmd->server);
+    conf_rec->threshold = atoi(t);
   } else
     if (&set_auth_timeout == cmd->info) {
-      if (!(config_rec->auth_timeout = PSTRDUP(cmd->pool, t)))
-	server_init_abort(cmd->server);	 
+      conf_rec->auth_timeout = atoi(t);
     } else
       if (&set_access_timeout == cmd->info) {
-	if (!(config_rec->access_timeout = PSTRDUP(cmd->pool, t)))
-	  server_init_abort(cmd->server);
+	conf_rec->access_timeout = atoi(t);
       } else
-	if (&set_file == cmd->info) {
-	  if (!(config_rec->filename = ap_server_root_relative(cmd->pool, t)))
-	    server_init_abort(cmd->server);
+	if (&set_compare == cmd->info) {
+	  conf_rec->compareN = atoi(t);
 	} else
-	  if (&set_compare == cmd->info) {
-	    if (!(config_rec->compareN = PSTRDUP(cmd->pool, t)))
-	      server_init_abort(cmd->server);
+	  if (&set_ignore_user == cmd->info) {
+	    ap_table_setn(conf_rec->ignore_users, t, t);
 	  } else
-	    if (&set_ignore_user == cmd->info) {
-	      ap_table_setn(config_rec->ignore_users, t, t);
+	    if (&set_ignore_ip == cmd->info) {
+	      ap_table_setn(conf_rec->ignore_ips, t, t);
 	    } else
-	      if (&set_ignore_ip == cmd->info) {
-		ap_table_setn(config_rec->ignore_ips, t, t);
+	      if (&set_email == cmd->info) {
+		if (!(conf_rec->email = PSTRDUP(cmd->pool, t)))
+		  server_init_abort(cmd->server);
 	      } else
-		if (&set_email == cmd->info) {
-		  if (!(config_rec->email = PSTRDUP(cmd->pool, t)))
+		if (&set_abuse_email == cmd->info) {
+		  if (!(conf_rec->abuse_email = PSTRDUP(cmd->pool, t)))
 		    server_init_abort(cmd->server);
-		  if (!config_rec->abuse_email)
-		    config_rec->abuse_email = config_rec->email;
-		  if (!config_rec->hack_email)
-		    config_rec->hack_email = config_rec->email;
-		  if (!config_rec->bw_email)
-		    config_rec->bw_email = config_rec->email;
 		} else
-		  if (&set_abuse_email == cmd->info) {
-		    if (!(config_rec->abuse_email = PSTRDUP(cmd->pool, t)))
+		  if (&set_hack_email == cmd->info) {
+		    if (!(conf_rec->hack_email = PSTRDUP(cmd->pool, t)))
 		      server_init_abort(cmd->server);
 		  } else
-		    if (&set_hack_email == cmd->info) {
-		      if (!(config_rec->hack_email = PSTRDUP(cmd->pool, t)))
+		    if (&set_bw_email == cmd->info) {
+		      if (!(conf_rec->bw_email = PSTRDUP(cmd->pool, t)))
 			server_init_abort(cmd->server);
 		    } else
-		      if (&set_bw_email == cmd->info) {
-			if (!(config_rec->bw_email = PSTRDUP(cmd->pool, t)))
-			  server_init_abort(cmd->server);
+		      if (&set_externalip == cmd->info) {
+			if (!(conf_rec->external_progip =
+			      PSTRDUP(cmd->pool, t)))
+			  server_init_abort(cmd->server);  
 		      } else
-			if (&set_externalip == cmd->info) {
-			  if (!(config_rec->external_progip =
+			if (&set_externaluser == cmd->info) {
+			  if (!(conf_rec->external_proguser =
 				PSTRDUP(cmd->pool, t)))
-			    server_init_abort(cmd->server);  
+			    server_init_abort(cmd->server);
 			} else
-			  if (&set_externaluser == cmd->info) {
-			    if (!(config_rec->external_proguser =
-				  PSTRDUP(cmd->pool, t)))
-			      server_init_abort(cmd->server);
+			  if (&set_failed_threshold == cmd->info) {
+			    conf_rec->failed_threshold = atoi(t);	 
 			  } else
-			    if (&set_failed_threshold == cmd->info) {
-			      if (!(config_rec->failed_threshold =
-				    PSTRDUP(cmd->pool, t)))
-				server_init_abort(cmd->server);  
+			    if (&set_failed_timeout == cmd->info) {
+			      conf_rec->failed_timeout = atol(t);	 
 			    } else
-			      if (&set_failed_timeout == cmd->info) {
-				if (!(config_rec->failed_timeout =
-				      PSTRDUP(cmd->pool, t)))
-				  server_init_abort(cmd->server);	 
+			      if (&set_failed_compare == cmd->info) {
+				conf_rec->failed_compareN = atoi(t);  
 			      } else
-				if (&set_failed_compare == cmd->info) {
-				  if (!(config_rec->failed_compareN =
+				if (&set_abuse_redirect_url == cmd->info) {
+				  if (!(conf_rec->abuse_redirect_url =
 					PSTRDUP(cmd->pool, t)))
-				    server_init_abort(cmd->server);  
+				    server_init_abort(cmd->server);
 				} else
-				  if (&set_abuse_redirect_url == cmd->info) {
-				    if (!(config_rec->abuse_redirect_url =
+				  if (&set_hack_redirect_url == cmd->info) {
+				    if (!(conf_rec->hack_redirect_url =
 					  PSTRDUP(cmd->pool, t)))
 				      server_init_abort(cmd->server);
 				  } else
-				    if (&set_hack_redirect_url == cmd->info) {
-				      if (!(config_rec->hack_redirect_url =
-					    PSTRDUP(cmd->pool, t)))
-					server_init_abort(cmd->server);
+				    if (&set_file == cmd->info) {
+				      if (!strstr(ap_server_root_relative(cmd->pool, t),
+						  IPROT_DB_EXT)) {
+					conf_rec->filename =
+					  (char *)PALLOC(cmd->pool, sizeof(ap_server_root_relative(cmd->pool, t) + sizeof(IPROT_DB_EXT) + 1));
+					strcpy(conf_rec->filename, ap_server_root_relative(cmd->pool, t));
+					strcat(conf_rec->filename, IPROT_DB_EXT);
+				      } else {
+					if (!(conf_rec->filename =
+					      ap_server_root_relative(cmd->pool, t)))
+					  server_init_abort(cmd->server);
+				      }
 				    } else
 				      if (&set_block_ignore_file == cmd->info) {
-					if (!(config_rec->block_ignore_filename =
-					      ap_server_root_relative(cmd->pool,
-								      t)))
-					  server_init_abort(cmd->server);	 
+					if (!strstr(ap_server_root_relative(cmd->pool, t),
+						    IPROT_DB_EXT)) {
+					  conf_rec->block_ignore_filename =
+					    (char *)PALLOC(cmd->pool, sizeof(ap_server_root_relative(cmd->pool, t) + sizeof(IPROT_DB_EXT) + 1));
+					  strcpy(conf_rec->block_ignore_filename, ap_server_root_relative(cmd->pool, t));
+					  strcat(conf_rec->block_ignore_filename, IPROT_DB_EXT);
+					} else {
+					  if (!(conf_rec->block_ignore_filename =
+						ap_server_root_relative(cmd->pool, t)))
+					    server_init_abort(cmd->server);
+					}
 				      } else
 					if (&set_max_bytes_user == cmd->info) {
-					  if (!(config_rec->max_bytes_user =
-						PSTRDUP(cmd->pool, t)))
-					    server_init_abort(cmd->server);
+					  conf_rec->max_bytes_user = atoi(t);
 					} else
 					  if (&set_bw_redirect_url ==
 					      cmd->info) {
-					    if (!(config_rec->bw_redirect_url =
+					    if (!(conf_rec->bw_redirect_url =
 						  PSTRDUP(cmd->pool, t)))
 					      server_init_abort(cmd->server);
 					  }
@@ -1555,55 +1966,55 @@ static const char *set_var(cmd_parms *cmd, void *dummy, char *t)
 
 static const char *set_nag(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->nag = val;
+  conf_rec->nag = val;
   return NULL;
 }
 
 static const char *set_enabled(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->enabled = val;
+  conf_rec->enabled = val;
   return NULL;
 }
 
 static const char *set_notifyip(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->notifyip= val;
+  conf_rec->notifyip= val;
   return NULL;
 }
 
 static const char *set_notifybw(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->notifybw= val;
+  conf_rec->notifybw= val;
   return NULL;
 }
 
 static const char *set_notifyuser(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->notifyuser = val;
+  conf_rec->notifyuser = val;
   return NULL;
 }
 
 static const char *set_notifylogin(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->notifylogin = val;
+  conf_rec->notifylogin = val;
   return NULL;
 }
 
@@ -1611,10 +2022,10 @@ static const char *set_abuse_status_return(cmd_parms *cmd,
 					   void *dummy,
 					   const char *val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->abuse_status_return = atoi(val);
+  conf_rec->abuse_status_return = atoi(val);
   return NULL;
 }
 
@@ -1622,10 +2033,10 @@ static const char *set_hack_status_return(cmd_parms *cmd,
 					  void *dummy,
 					  const char *val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->hack_status_return = atoi(val);
+  conf_rec->hack_status_return = atoi(val);
   return NULL;
 }
 
@@ -1633,10 +2044,10 @@ static const char *set_bw_status_return(cmd_parms *cmd,
 					void *dummy,
 					const char *val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->bw_status_return = atoi(val);
+  conf_rec->bw_status_return = atoi(val);
   return NULL;
 }
 
@@ -1644,28 +2055,28 @@ static const char *set_bw_timeout(cmd_parms *cmd,
 				  void *dummy,
 				  const char *val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->bw_timeout = atoi(val);
+  conf_rec->bw_timeout = atoi(val);
   return NULL;
 }
 
 static const char *set_no_HEAD_req(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->no_HEAD_req = val;
+  conf_rec->no_HEAD_req = val;
   return NULL;
 }
 
 static const char *set_all_hosts_admin(cmd_parms *cmd, void *dummy, int val)
 {
-  prot_config_rec *config_rec =
+  prot_config_rec *conf_rec =
     (prot_config_rec *) GET_MODULE_CONFIG(cmd->server->module_config,
 					  &iprot_module);
-  config_rec->all_hosts_admin = val;
+  conf_rec->all_hosts_admin = val;
   return NULL;
 }
 
@@ -1776,11 +2187,7 @@ static handler_rec handlers[] = {
 
 module MODULE_VAR_EXPORT iprot_module = {
   STANDARD_MODULE_STUFF,
-#if 0
   mod_init,		/* module initializer			     */
-#else
-  NULL,			/* module initializer			     */
-#endif
   NULL,			/* per-directory config creater		     */
   NULL,			/* dir config merger - default is override   */
   create_prot_config,	/* server config creator		     */
@@ -1795,9 +2202,13 @@ module MODULE_VAR_EXPORT iprot_module = {
   NULL,			/* [8]	fixups				     */
   iprot_record,		/* [10] logger				     */
   NULL,			/* [3]	header parser			     */
-  NULL,			/* process initialization child_init	     */
-  NULL,			/* process exit/cleanup child_exit	     */
-  NULL			/* [1]	post read-request		     */
+  child_init,		/* process initialization child_init	     */
+  child_exit,		/* process exit/cleanup child_exit	     */
+#if DEBUG
+  post_read_request	/* [1]	post read-request		     */
+#else
+  NULL,			/* [1]	post read-request		     */
+#endif
 };
 
 /*
