@@ -1,7 +1,13 @@
+Version 1.9.15
+* Add Bandwidth metering
+
+Version 1.9.1 to Version 1.9.14
+* Bug fixes
+
 Version 1.9.0 02/25/03
 * Defaults provided for all values, directives left out of httpd.conf
   can no longer cause the server to segfault.
-* IProtAbuseEmail, IProtHackEmail, and IProtBWEmail have been added for
+* IProtAbuseEmail and IProtHackEmail have been added for
   greater control of notification email.
 * Added support to eliminate proxy based hack attacks.
 * Addition of an admin interface for some of the iprot configs and to

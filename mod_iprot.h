@@ -6,7 +6,7 @@
  * http://www.digital-concepts.net
  */
 
-#define IPROT_VERSION "1.9.0-beta14"
+#define IPROT_VERSION "1.9.15"
 #define SUPPORT_MAIL_URL "mailto:iprotect@digital-concepts.net"
 #define COPYRIGHT_NOTICE "Copyright 1999-2003, Digital Concepts"
 
